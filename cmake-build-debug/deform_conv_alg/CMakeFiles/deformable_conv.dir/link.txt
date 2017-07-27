@@ -1,0 +1,1 @@
+/usr/bin/c++   -g   CMakeFiles/deformable_conv.dir/main.cc.o CMakeFiles/deformable_conv.dir/test.cpp.o CMakeFiles/deformable_conv.dir/deform_conv.cpp.o  -o deformable_conv 
