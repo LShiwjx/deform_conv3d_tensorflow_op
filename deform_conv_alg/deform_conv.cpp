@@ -95,13 +95,13 @@ void deformable_conv3d_im2col(const int n, const double *data_im, const double *
                          h_col) * width_col + w_col;
                 //组织方式：输出第一次卷积 l....l|h....h|w....w|
                 //           第二次卷积 l....l|h....h|w....w|
-                //....               卷积次数为卷积核的大小，l的长度为输出的大小
+                //....               卷积次数为输出的大小，l的长度为卷积核的大小
 
-                const double offset_l = data_offset_ptr[data_offset_l_ptr];//偏移量
-                const double offset_h = data_offset_ptr[data_offset_h_ptr];
+                const double_t offset_l = data_offset_ptr[data_offset_l_ptr];//偏移量
+                const double_t offset_h = data_offset_ptr[data_offset_h_ptr];
                 const double_t offset_w = data_offset_ptr[data_offset_w_ptr];
 
-                const double l_im = l_in + i * dilation_l + offset_l;//偏移后的位置
+                const double_t l_im = l_in + i * dilation_l + offset_l;//偏移后的位置
                 const double_t h_im = h_in + j * dilation_h + offset_h;
                 const double_t w_im = w_in + k * dilation_w + offset_w;
 

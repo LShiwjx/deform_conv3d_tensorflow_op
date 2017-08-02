@@ -17,7 +17,7 @@ struct deformable_im2col {
     void operator()(const Device &d,
                     const DType *data_im, const DType *data_offset,
                     const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &kernel_shape,
-                    const TensorShape &pad, const TensorShape &stride, const TensorShape &dilation,
+                    const Tensor &pad, const Tensor &stride, const Tensor &dilation,
                     const int deformable_group, DType *data_col);
 };
 //template <typename Device,typename DType>

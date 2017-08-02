@@ -9,7 +9,20 @@ _deform_conv_module = tf.load_op_library(filename)
 deform_conv_op = _deform_conv_module.deform_conv_op
 # deform_conv_grad_op = _deform_conv_module.deform_conv_backprop_op
 
+image_shape = [1, 1, 3, 3, 3]
+offset_shape = [1, 2, 2, 2, 16]
+kernel_shape = [1, 2, 2, 2]
+images = tf.Variable(tf.random_normal(image_shape,
+                                      dtype=tf.float32,
+                                      stddev=1e-1))
+offset = tf.Variable(tf.random_normal(offset_shape,
+                                      dtype=tf.float32,
+                                      stddev=1e-1))
+kernel = tf.Variable(tf.random_normal(kernel_shape,
+                                      dtype=tf.float32,
+                                      stddev=1e-1))
 
+out = deform_conv_op(images, kernel, offset, [1, 1, 1], [1, 1, 1], padding="SAME", deformable_groups=1)
 # @ops.RegisterGradient("DeformConvOp")
 # def _deform_conv_grad(op, grad):
 #     """The gradients for `deform_conv`.

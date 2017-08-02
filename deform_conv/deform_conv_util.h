@@ -34,14 +34,14 @@ inline TensorShape Slice(const TensorShape &shape, int start, int end) {
 
 struct DeformConvParam {
     DeformConvParam(TensorShape kernel, TensorShape stride,
-                    TensorShape pad, TensorShape rates, int num_group, int num_filter,
+                    TensorShape pad, TensorShape dilations, int num_group, int num_filter,
                     bool no_bias) : kernel(kernel), stride(stride), pad(pad),
                                     num_group(num_group), num_filter(num_filter),
-                                    no_bias(no_bias), rates(rates) {};
-    TensorShape kernel, stride, pad, rates;
+                                    dilations(dilations) {};
+    TensorShape kernel, stride, pad, dilations;
     int num_group;
     int num_filter;
-    bool no_bias;
+//    bool no_bias;
 };
 
 
