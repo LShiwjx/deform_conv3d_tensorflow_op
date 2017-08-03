@@ -2,11 +2,13 @@
 #define TENSORFLOW_KERNELS_CONV_OPS_im2col_H_
 
 #include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
+#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/framework/tensor_types.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include <cstring>
 #include <vector>
+
 using namespace tensorflow;
 
 typedef Eigen::GpuDevice GPUDevice;
@@ -17,7 +19,7 @@ struct deformable_im2col {
     void operator()(const Device &d,
                     const DType *data_im, const DType *data_offset,
                     const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &kernel_shape,
-                    const Tensor &pad, const Tensor &stride, const Tensor &dilation,
+                    const TensorShape &pad, const Tensor &stride, const Tensor &dilation,
                     const int deformable_group, DType *data_col);
 };
 //template <typename Device,typename DType>

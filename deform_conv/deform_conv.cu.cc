@@ -93,11 +93,11 @@ __global__ void deformable_im2col_gpu_kernel(const int n, const DType *data_im, 
         const int h_in = h_col * stride_h - pad_h;
         const int l_in = l_col * stride_l - pad_l;//原图像的卷积点
 
-        double *data_col_ptr = data_col + c_col * length_col * height_col * width_col + l_col * height_col + width_col +
+        DType *data_col_ptr = data_col + c_col * length_col * height_col * width_col + l_col * height_col + width_col +
                                h_col * width_col + w_col;//输出指针的初始位置，四维张量clhw
-        const double *data_img_ptr =
+        const DType *data_img_ptr =
                 data_im + c_im * length * height * width + l_in * height * width + h_in * width + w_in;//图像思维张量，clhw
-        const double *data_offset_ptr = data_offset +
+        const DType *data_offset_ptr = data_offset +
                                         deformable_group_index * 3 * kernel_h * kernel_l * kernel_w * length_col *
                                         height_col * width_col;//偏移指针的组的起始位置，五维张量
 

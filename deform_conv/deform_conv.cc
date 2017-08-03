@@ -298,8 +298,8 @@ template<typename Device, typename T>
 class DeformConvOp : public OpKernel {
 public:
     explicit DeformConvOp(OpKernelConstruction *context) : OpKernel(context) {
-        padding_ = context->GetAttr("padding", &padding_);
-        deformable_group_ = context->GetAttr("deformable_group", &deformable_group_);
+        context->GetAttr("padding", &padding_);
+        context->GetAttr("deformable_group", &deformable_group_);
     }
 
     void Compute(OpKernelContext *context) override {
@@ -345,7 +345,7 @@ public:
         auto col_buf_6d_shape = TensorShape(
                 {input.dim_size(0), input.dim_size(1) * filter.dim_size(0), out_lens, out_cols, out_rows,
                  filter.dim_size(0) * filter.dim_size(1) * filter.dim_size(2)});
-        Tensor col_buffer_6d = nullptr;
+        Tensor col_buffer_6d;
         OP_REQUIRES_OK(context, context->allocate_temp(DataTypeToEnum<T>::value, col_buf_6d_shape, &col_buffer_6d));
 //        OP_REQUIRES_OK(context, context->allocate_output(0, col_buf_6d_shape, &col_buffer_6d));//TODO
         auto col_buffer_6d_ptr = col_buffer_6d.template flat<T>().data();
