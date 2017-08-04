@@ -19,7 +19,7 @@ using shape_inference::InferenceContext;
 using shape_inference::ShapeHandle;
 //------------------------------------------Register-----------------------------
 namespace {
-    REGISTER_OP("DeformConv3dOp")
+    REGISTER_OP("DeformConv3d")
             .Input("x: T") //T是类型
             .Input("filter: T")
             .Input("offset: T")

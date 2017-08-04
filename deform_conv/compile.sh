@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-export PATH="/home/sl/anaconda2/bin:$PATH" # -I添加新的目录
-source activate tensorflow
+#export PATH="/home/sl/anaconda2/bin:$PATH" # -I添加新的目录
+#source activate tensorflow
 #TF_INC=$(python -c 'import tensorflow as tf; print(tf.sysconfig.get_include())')
 nvcc -std=c++11 -c -o deform_conv.cu.o deform_conv.cu.cc \
      -I/home/sl/anaconda2/envs/tensorflow/lib/python3.4/site-packages/tensorflow/include \
