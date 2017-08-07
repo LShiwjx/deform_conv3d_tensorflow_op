@@ -14,10 +14,10 @@ using namespace tensorflow;
 template<typename Device, typename T>
 struct DeformableConv3dVideo2colFunctor {
     void operator()(const Device &d,
-                    const T *&data_im, const T *&data_offset,
+                    const T *data_im, const T *data_offset,
                     const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &kernel_shape,
-                    const vector<int> &pad, const vector<int> &stride, const vector<int> &dilation,
-                    int deformable_group, T *&data_col);
+                    const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilation,
+                    int deformable_group, T *data_col);
 };
 
 inline int ProdShape(const TensorShape &shape, int start = 0, int end = -1) {
