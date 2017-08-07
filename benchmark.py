@@ -7,11 +7,11 @@ from datetime import datetime
 import time
 import math
 import tensorflow as tf
-import deform_conv.deform_conv_op as deform_conv_op
+import deformable_conv3d.deformable_conv3d_op as deform_conv_op
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_integer('batch_size', 16,
+tf.app.flags.DEFINE_integer('batch_size', 4,
                             """Batch size.""")
 tf.app.flags.DEFINE_integer('num_batches', 100,
                             """Number of batches to run.""")
@@ -57,20 +57,19 @@ def run_benchmark():
     timing_entries = []
     with tf.Graph().as_default():
         # Generate some dummy images.
-        image_size = 224
-        kernel_col = 3
-        kernel_rol = 3
-        kernel_size = kernel_col * kernel_rol
-        channel = 64
+        image_size = 225
+        video_size = 8
+        kernel_length = 3
+        kernel_height = 3
+        kernel_width = 3
+        kernel_size = kernel_length * kernel_height * kernel_width
+        kernel_channel = 3
         # Note that our padding definition is slightly different the cuda-convnet.
         # In order to force the model to start with the same activations sizes,
         # we add 3 to the image_size and employ VALID padding above.
-        if FLAGS.data_format == 'NCHW':
-            image_shape = [FLAGS.batch_size, 3, image_size + 3, image_size + 3]
-        else:
-            image_shape = [FLAGS.batch_size, image_size + 3, image_size + 3, 3]
-        offset_shape = [FLAGS.batch_size, 2 * kernel_size, image_size + 3, image_size + 3]
-        kernel_shape = [channel, 3, kernel_col, kernel_rol]
+        image_shape = [FLAGS.batch_size, 3, image_size, image_size, video_size]
+        offset_shape = [1, image_size, image_size, video_size, kernel_size, 3]
+        kernel_shape = [kernel_channel, kernel_length, kernel_height, kernel_width]
         images = tf.Variable(tf.random_normal(image_shape,
                                               dtype=tf.float32,
                                               stddev=1e-1))
@@ -82,8 +81,7 @@ def run_benchmark():
                                               stddev=1e-1))
         parameters = [kernel]
 
-        last_layer = deform_conv_op.deform_conv_op(images, kernel, offset, strides=[1, 1, 1, 1], rates=[1, 1, 1, 1],
-                                                   padding="SAME", num_groups=1, deformable_group=1)
+        last_layer = deform_conv_op.deformable_conv3d_op(images, kernel, offset)
 
         # Build an initialization operation.
         init = tf.global_variables_initializer()

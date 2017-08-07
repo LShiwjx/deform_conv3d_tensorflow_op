@@ -2,8 +2,9 @@
 #define EIGEN_USE_GPU
 #define EIGEN_USE_THREADS
 
-#include "deformable_conv3d_video2col.h"
+#include "deformable_conv3d.h"
 #include "tensorflow/core/util/cuda_kernel_helper.h"
+
 using namespace tensorflow;
 
 //interpolation
@@ -59,17 +60,18 @@ __device__ T Tri_Linear(const T *bottom_data,
 
 // Define the CUDA kernel.
 template<typename T>
-__global__ void DeformableConv3dVideo2colCudaKernel(const int n, const T *data_im, const T *data_offset,
-                                                    const int channel_in,
-                                                    const int length_in, const int height_in, const int width_in,
-                                                    const int kernel_l, const int kernel_h, const int kernel_w,
-                                                    const int pad_l, const int pad_h, const int pad_w,
-                                                    const int stride_l, const int stride_h, const int stride_w,
-                                                    const int dilation_l, const int dilation_h, const int dilation_w,
-                                                    const int channel_per_deformable_group,
-                                                    const int channel_col,
-                                                    const int length_col, const int height_col, const int width_col,
-                                                    T *data_col) {
+__global__ void DeformableConv3dCudaKernel(const int n, const T *data_im, const T *data_offset,
+                                           const int channel_in,
+                                           const int length_in, const int height_in, const int width_in,
+                                           const int channel_kernel,
+                                           const int kernel_l, const int kernel_h, const int kernel_w,
+                                           const int pad_l, const int pad_h, const int pad_w,
+                                           const int stride_l, const int stride_h, const int stride_w,
+                                           const int dilation_l, const int dilation_h, const int dilation_w,
+                                           const int channel_per_deformable_group,
+                                           const int channel_col,
+                                           const int length_col, const int height_col, const int width_col,
+                                           T *data_col, T *data_output, const T *data_kernel) {
     //CUDA assignment
     CUDA_1D_KERNEL_LOOP(index, n) {
         //something for output col, the format is  ncv(lhw)d
@@ -86,6 +88,11 @@ __global__ void DeformableConv3dVideo2colCudaKernel(const int n, const T *data_i
         const int volume_col = length_col * height_col * width_col;
         const int depth_offset = volume_kernel;
 
+        //something for output
+        const int n_out = n_col;
+        const int volume_out = volume_col;
+        const int channel_out = channel_in * channel_kernel;
+
         //something for input img, the format is ncv(lhw), same like up
         const int w_in = w_col * stride_w - pad_w;
         const int h_in = h_col * stride_h - pad_h;
@@ -98,10 +105,15 @@ __global__ void DeformableConv3dVideo2colCudaKernel(const int n, const T *data_i
         const int deformable_group_index = c_col / channel_per_deformable_group;
 
 
-        //current data ptr for out_col , col form is NCLHWD
-        T *data_col_ptr = data_col + n_col * channel_col * volume_col * depth_col + c_col * volume_col * depth_col +
-                          l_col * height_col * width_col * depth_col + h_col * width_col * depth_col +
-                          w_col * depth_col;
+        //current data ptr for output, format is NCLHW
+        T *data_output_base_ptr = data_output + n_out * channel_out * volume_out +
+                                  l_col * height_col * width_col + h_col * width_col + w_col;
+
+        //current data ptr for col , col form is NCLHWD
+        T *data_col_base_ptr =
+                data_col + n_col * channel_col * volume_col * depth_col + c_col * volume_col * depth_col +
+                l_col * height_col * width_col * depth_col + h_col * width_col * depth_col +
+                w_col * depth_col;
         //current data ptr for input img, img form is NCLHW
         const T *data_img_ptr = data_im + n_in * channel_in * volume_in + c_in * volume_in;
 
@@ -111,6 +123,9 @@ __global__ void DeformableConv3dVideo2colCudaKernel(const int n, const T *data_i
                                    l_col * height_col * width_col * depth_offset * 3 +
                                    h_col * width_col * depth_offset * 3 + w_col * depth_offset * 3;
 
+        const T *data_kernel_base_ptr = data_kernel;
+
+        T *data_col_ptr = data_col_base_ptr;
         //for every convolution point, calculate the offset value
         for (int j = 0; j < kernel_l; j++) {
             for (int k = 0; k < kernel_h; k++) {
@@ -138,6 +153,7 @@ __global__ void DeformableConv3dVideo2colCudaKernel(const int n, const T *data_i
                         //interpolation
                         val = Tri_Linear(data_img_ptr, length_in, height_in, width_in,
                                          l_in_after, h_in_after, w_in_after);
+//                        printf("%d\t",val);
                     }
                     //assignment and update for output
                     *data_col_ptr = val;
@@ -145,45 +161,64 @@ __global__ void DeformableConv3dVideo2colCudaKernel(const int n, const T *data_i
                 }
             }
         }
+
+        //do the multiplication
+        const T *data_kernel_ptr = data_kernel_base_ptr;
+        T *data_out_ptr = data_output_base_ptr;
+        for (int i = 0; i < channel_kernel; ++i) {
+            data_out_ptr = data_output_base_ptr + i * volume_out;
+            data_kernel_ptr = data_kernel + i * volume_kernel;
+            T val = 0;
+            for (int j = 0; j < kernel_l; ++j) {
+                for (int k = 0; k < kernel_h; ++k) {
+                    for (int l = 0; l < kernel_w; ++l) {
+                        int64 offset = j * kernel_h * kernel_w + k * kernel_w + l;
+                        val += data_kernel_ptr[offset] * data_col_base_ptr[offset];
+                    }
+                }
+            }
+            *data_out_ptr = val;
+        }
     }
 }
 
 // Define the GPU implementation that launches the CUDA kernel.
 template<typename T>
-struct DeformableConv3dVideo2colFunctor<GPUDevice, T> {
+struct DeformableConv3dFunctor<GPUDevice, T> {
     void operator()(const GPUDevice &d,
                     const T *data_im, const T *data_offset,
                     const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &kernel_shape,
                     const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilation,
-                    int deformable_group, T *data_col) {
+                    int deformable_group, T *data_col, T *data_output, const T *data_kernel) {
         //batch size * channel / groups
         int64 channel_per_deformable_group = im_shape.dim_size(0) * im_shape.dim_size(1) / deformable_group;
         //the cuda kernel used should be same as output col size.
         int64 num_kernels = ProdShape(col_shape, 0, 5);
         //TODO: what is best value
-        int block_count = 1024;
+        int block_count = 5;
         int thread_per_block = 1024;
-        DeformableConv3dVideo2colCudaKernel<T>
+        DeformableConv3dCudaKernel<T>
                 << < block_count, thread_per_block, 0, d.stream() >> > (
                 num_kernels, data_im, data_offset,
                         im_shape.dim_size(1), im_shape.dim_size(2), im_shape.dim_size(3), im_shape.dim_size(4),
+                        kernel_shape.dim_size(0),
                         kernel_shape.dim_size(1), kernel_shape.dim_size(2), kernel_shape.dim_size(3),
                         pad[0], pad[1], pad[2],
                         stride[0], stride[1], stride[2],
                         dilation[0], dilation[1], dilation[2],
                         channel_per_deformable_group,
                         col_shape.dim_size(1), col_shape.dim_size(2), col_shape.dim_size(3), col_shape.dim_size(4),
-                        data_col);
+                        data_col, data_output, data_kernel);
     }
 };
 
 // Instantiate functors for the types of OpKernels registered.
 typedef Eigen::GpuDevice GPUDevice;
 template
-struct DeformableConv3dVideo2colFunctor<GPUDevice, float>;
+struct DeformableConv3dFunctor<GPUDevice, float>;
 template
-struct DeformableConv3dVideo2colFunctor<GPUDevice, int64>;
+struct DeformableConv3dFunctor<GPUDevice, int64>;
 template
-struct DeformableConv3dVideo2colFunctor<GPUDevice, double>;
+struct DeformableConv3dFunctor<GPUDevice, double>;
 
 #endif  // GOOGLE_CUDA

@@ -5,7 +5,7 @@
 #define EIGEN_USE_THREADS
 #define EIGEN_USE_GPU
 
-#include "deformable_conv3d_video2col.h"
+#include "deformable_conv3d.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/shape_inference.h"
@@ -27,7 +27,7 @@ using CPUDevice = Eigen::ThreadPoolDevice;
 using GPUDevice = Eigen::GpuDevice;
 
 
-REGISTER_OP("DeformableConv3dVideo2col")
+REGISTER_OP("DeformableConv3d")
         .Input("input: T")
         .Input("filter: T")
         .Input("offset: T")
@@ -57,7 +57,7 @@ REGISTER_OP("DeformableConv3dVideo2col")
             TF_RETURN_IF_ERROR(c->GetAttr("deformable_groups", &deformable_groups));
             TF_RETURN_IF_ERROR(c->GetAttr("padding", &padding));
 
-            //calcute the output shape
+            //calcute the output shape lhw
             vector<int64> output_shape(3);
             vector<int64> pads(3);
             for (int i = 0; i < 3; ++i) {
@@ -65,43 +65,47 @@ REGISTER_OP("DeformableConv3dVideo2col")
                         c->Value(c->Dim(input_shape, i + 2)), c->Value(c->Dim(filter_shape, i + 1)), strides[i],
                         padding, &output_shape[i], &pads[i]));
             }
-
-            cout << "output shape: ";
-            std::copy(begin(output_shape), end(output_shape), std::ostream_iterator<int64>(std::cout, " "));
-
+//            cout << "output shape: ";
+//            std::copy(begin(output_shape), end(output_shape), std::ostream_iterator<int64>(std::cout, " "));
 
             int64 batch_size = c->Value(c->Dim(input_shape, 0));
-            int64 out_channels = c->Value(c->Dim(input_shape, 1));
-
+            int64 col_channels = c->Value(c->Dim(input_shape, 1));
             //test attr deformable groups
-            if ((batch_size * out_channels) % deformable_groups != 0) {
+            if ((batch_size * col_channels) % deformable_groups != 0) {
                 return errors::InvalidArgument("deformable_groups should be divided by batch_size * channels");
             }
 
+
             //the output shape of col
-            ShapeHandle output_shapes = c->MakeShape(
-                    {batch_size, out_channels, output_shape[0], output_shape[1], output_shape[2],
+            ShapeHandle col_shapes = c->MakeShape(
+                    {batch_size, col_channels, output_shape[0], output_shape[1], output_shape[2],
                      c->Value(c->Dim(filter_shape, 1)) *
                      c->Value(c->Dim(filter_shape, 2)) *
                      c->Value(c->Dim(filter_shape, 3))});
-
             cout << "col shape: ";
-            cout << output_shape[0] << output_shape[1] << output_shape[2] <<
+            cout << batch_size << col_channels << output_shape[0] << output_shape[1] << output_shape[2] <<
                  c->Value(c->Dim(filter_shape, 1)) *
                  c->Value(c->Dim(filter_shape, 2)) *
                  c->Value(c->Dim(filter_shape, 3)) << endl;
+
+
+            ShapeHandle output_shapes = c->MakeShape(
+                    {batch_size, col_channels * c->Value(c->Dim(filter_shape, 0)), output_shape[0], output_shape[1],
+                     output_shape[2]});
+            cout << "output shapes" << batch_size << col_channels * c->Value(c->Dim(filter_shape, 0)) << output_shape[0]
+                 << output_shape[1] << output_shape[2] << endl;
             c->set_output(0, output_shapes);
             return Status::OK();
         });
 
 // CPU specialization of actual computation.
 template<typename T>
-struct DeformableConv3dVideo2colFunctor<CPUDevice, T> {
+struct DeformableConv3dFunctor<CPUDevice, T> {
     void operator()(const CPUDevice &d,
                     const T *data_im, const T *data_offset,
                     const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &kernel_shape,
                     const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilation,
-                    int64 deformable_group, T *data_col) {
+                    int64 deformable_group, T *data_col, T *data_output, const T *data_kernel) {
         cout << "using cpu\n";
     };
 };
@@ -109,9 +113,9 @@ struct DeformableConv3dVideo2colFunctor<CPUDevice, T> {
 // OpKernel definition.
 // template parameter <T> is the datatype of the tensors.
 template<typename Device, typename T>
-class DeformableConv3dVideo2colOp : public OpKernel {
+class DeformableConv3dOp : public OpKernel {
 public:
-    explicit DeformableConv3dVideo2colOp(OpKernelConstruction *context) : OpKernel(context) {
+    explicit DeformableConv3dOp(OpKernelConstruction *context) : OpKernel(context) {
         OP_REQUIRES_OK(context, context->GetAttr("strides", &strides));
         OP_REQUIRES(context, strides.size() == 3,
                     errors::InvalidArgument("strides too large"));
@@ -122,11 +126,11 @@ public:
         OP_REQUIRES_OK(context, context->GetAttr("padding", &padding));
 
 
-        cout << '\n' << "dilatation_rates:";
-        std::copy(begin(dilatation_rates), end(dilatation_rates), std::ostream_iterator<T>(std::cout, " "));
-        cout << '\n' << "strides:";
-        std::copy(begin(strides), end(strides), std::ostream_iterator<T>(std::cout, " "));
-        cout << "\npadding: " << padding << '\n' << "groups: " << deformable_groups << endl;
+//        cout << '\n' << "dilatation_rates:";
+//        std::copy(begin(dilatation_rates), end(dilatation_rates), std::ostream_iterator<T>(std::cout, " "));
+//        cout << '\n' << "strides:";
+//        std::copy(begin(strides), end(strides), std::ostream_iterator<T>(std::cout, " "));
+//        cout << "\npadding: " << padding << '\n' << "groups: " << deformable_groups << endl;
 
     }
 
@@ -147,6 +151,7 @@ public:
         vector<int64> pads = {0, 0, 0};
         int64 batch_size = input.dim_size(0);
         int64 input_channel = input.dim_size(1);
+        int64 filter_channel = filter.dim_size(0);
 
         //TODO 输入和滤波器都只能是奇数
         for (int i = 0; i < 3; ++i) {
@@ -162,31 +167,43 @@ public:
                  output_shape[0], output_shape[1], output_shape[2],
                  ProdShape(filter_shape, 1, filter_shape.dims())});
 
-        Tensor *col;
-        OP_REQUIRES_OK(context, context->allocate_output(0, col_shape, &col));
+        //output shape
+        const TensorShape output_shapes = TensorShape(
+                {batch_size, input_channel * filter_channel,
+                 output_shape[0], output_shape[1], output_shape[2]});
 
-        // Create an output tensor  col tensor
-        //TODO: 暂时取值为col
-//        Tensor *output = NULL;
-//        OP_REQUIRES_OK(context, context->allocate_temp(DataTypeToEnum<T>::value, col_shape, &output));
-//        T *output_ptr = output->template flat<T>().data();
+        // Create an output tensor
+        Tensor *output = NULL;
+        OP_REQUIRES_OK(context, context->allocate_output(0, output_shapes, &output));
+        T *output_ptr = output->template flat<T>().data();
 
-        // Do the computation.
-        T *col_base_ptr = col->template flat<T>().data();
-        const T *input_base_ptr = input.template flat<T>().data();
+        // Create a temp for col.
+        Tensor col;
+        OP_REQUIRES_OK(context, context->allocate_temp(DataTypeToEnum<T>::value, col_shape, &col));
+        T *col_base_ptr = col.template flat<T>().data();
+
+        // Get the input and offset data ptr
+        const T *input_ptr = input.template flat<T>().data();
         const T *offset_ptr = offset.template flat<T>().data();
+        const T *filter_ptr = filter.template flat<T>().data();
 
-        cout << "pad: " << pads[0]
-             << "\nstrides: " << strides[0] << "\nnum col:"
-             << col->NumElements() << endl;
+//        cout << "pad: " << pads[0] << pads[1] << pads[2]
+//             << "\nstrides: " << strides[0] << strides[1] << strides[2]
+//             << "\nnum col:" << col.NumElements()
+//             << "\nnum filter:" << filter.NumElements()
+//             << "\nnum input:" << input.NumElements()
+//             << "\nnum offset:" << offset.NumElements()
+//             << "\nnume output:" << output->NumElements() << endl;
 
-        DeformableConv3dVideo2colFunctor<Device, T>()(
+        DeformableConv3dFunctor<Device, T>()(
                 context->eigen_device<Device>(),
-                input_base_ptr,
+                input_ptr,
                 offset_ptr,
                 input_shape, col_shape, filter_shape,
                 pads, strides, dilatation_rates, deformable_groups,
-                col_base_ptr
+                col_base_ptr,
+                output_ptr,
+                filter_ptr
         );
     }
 
@@ -201,10 +218,10 @@ private:
 #ifdef GOOGLE_CUDA
 #define REGISTER_GPU(T)                                          \
   REGISTER_KERNEL_BUILDER(                                       \
-      Name("DeformableConv3dVideo2col")                          \
+      Name("DeformableConv3d")                          \
       .Device(DEVICE_GPU)                                        \
       .TypeConstraint<T>("T"),                                   \
-      DeformableConv3dVideo2colOp<GPUDevice, T>);
+      DeformableConv3dOp<GPUDevice, T>);
 REGISTER_GPU(float);
 REGISTER_GPU(int64);
 REGISTER_GPU(double);
@@ -213,10 +230,10 @@ REGISTER_GPU(double);
 // Register the CPU kernels.
 #define REGISTER_CPU(T)                                          \
   REGISTER_KERNEL_BUILDER(                                       \
-      Name("DeformableConv3dVideo2col")                          \
+      Name("DeformableConv3d")                          \
       .Device(DEVICE_CPU)                                        \
       .TypeConstraint<T>("T"),                                   \
-      DeformableConv3dVideo2colOp<CPUDevice, T>);
+      DeformableConv3d<CPUDevice, T>);
 //REGISTER_CPU(float);
 //REGISTER_CPU(int64);
 //REGISTER_CPU(double);
