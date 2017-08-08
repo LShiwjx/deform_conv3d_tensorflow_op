@@ -118,7 +118,6 @@ __global__ void DeformableConv3dCudaKernel(const int n, const T *data_im, const 
         const T *data_img_ptr = data_im + n_in * channel_in * volume_in + c_in * volume_in;
 
         //current data ptr for offset value, off format is GLHWD3
-
         const T *data_offset_ptr = data_offset + deformable_group_index * volume_col * depth_offset * 3 +
                                    l_col * height_col * width_col * depth_offset * 3 +
                                    h_col * width_col * depth_offset * 3 + w_col * depth_offset * 3;
@@ -153,7 +152,6 @@ __global__ void DeformableConv3dCudaKernel(const int n, const T *data_im, const 
                         //interpolation
                         val = Tri_Linear(data_img_ptr, length_in, height_in, width_in,
                                          l_in_after, h_in_after, w_in_after);
-//                        printf("%d\t",val);
                     }
                     //assignment and update for output
                     *data_col_ptr = val;

@@ -1,6 +1,3 @@
-#ifndef TENSORFLOW_KERNELS_CONV_OPS_im2col_gpu_H_
-#define TENSORFLOW_KERNELS_CONV_OPS_im2col_gpu_H_
-
 #if GOOGLE_CUDA
 #define EIGEN_USE_GPU
 #define EIGEN_USE_THREADS
@@ -186,7 +183,5 @@ struct deformable_im2col<GPUDevice, double>;
 //struct launch_batch_matmul<GPUDevice, double>;
 
 #endif  // GOOGLE_CUDA
-
-#endif  // TENSORFLOW_KERNELS_CONV_OPS_im2col_gpu_H_
 
 

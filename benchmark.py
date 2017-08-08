@@ -58,7 +58,7 @@ def run_benchmark():
     with tf.Graph().as_default():
         # Generate some dummy images.
         image_size = 225
-        video_size = 8
+        video_size = 9
         kernel_length = 3
         kernel_height = 3
         kernel_width = 3

@@ -58,42 +58,57 @@ REGISTER_OP("DeformableConv3d")
             TF_RETURN_IF_ERROR(c->GetAttr("padding", &padding));
 
             //calcute the output shape lhw
-            vector<int64> output_shape(3);
-            vector<int64> pads(3);
+            vector<int64> output_shape = {0, 0, 0};
+            vector<int64> pads = {0, 0, 0};
             for (int i = 0; i < 3; ++i) {
                 TF_RETURN_IF_ERROR(GetWindowedOutputSize(
                         c->Value(c->Dim(input_shape, i + 2)), c->Value(c->Dim(filter_shape, i + 1)), strides[i],
                         padding, &output_shape[i], &pads[i]));
             }
-//            cout << "output shape: ";
-//            std::copy(begin(output_shape), end(output_shape), std::ostream_iterator<int64>(std::cout, " "));
 
             int64 batch_size = c->Value(c->Dim(input_shape, 0));
             int64 col_channels = c->Value(c->Dim(input_shape, 1));
+            int64 output_channels = col_channels * c->Value(c->Dim(filter_shape, 0));
+            int64 volume_filter = c->Value(c->Dim(filter_shape, 1)) *
+                                  c->Value(c->Dim(filter_shape, 2)) * c->Value(c->Dim(filter_shape, 3));
             //test attr deformable groups
-            if ((batch_size * col_channels) % deformable_groups != 0) {
-                return errors::InvalidArgument("deformable_groups should be divided by batch_size * channels");
+            if (output_channels % deformable_groups != 0) {
+                return errors::InvalidArgument("deformable_groups should be divided by output_channels");
+            }
+            //check the single value of input lhw
+            if (c->Value(c->Dim(input_shape, 2)) % 2 != 1 || c->Value(c->Dim(input_shape, 3)) % 2 != 1
+                || c->Value(c->Dim(input_shape, 4)) % 2 != 1) {
+                return errors::InvalidArgument("the input is not singular");
+            }
+            //check the single value of filter lhw
+            if (c->Value(c->Dim(filter_shape, 1)) % 2 != 1 || c->Value(c->Dim(filter_shape, 2)) % 2 != 1
+                || c->Value(c->Dim(filter_shape, 3)) % 2 != 1) {
+                return errors::InvalidArgument("the input is not singular");
             }
 
+            //check the offset value of lhw
+            if (c->Value(c->Dim(input_shape, 2)) != c->Value(c->Dim(offset_shape, 1))
+                || c->Value(c->Dim(input_shape, 3)) != c->Value(c->Dim(offset_shape, 2))
+                || c->Value(c->Dim(input_shape, 4)) != c->Value(c->Dim(offset_shape, 3))) {
+                return errors::InvalidArgument("the offset is not same as input");
+            }
+            //test offset depth
+            if (c->Value(c->Dim(offset_shape, 4)) != volume_filter) {
+                return errors::InvalidArgument("the depth of offset is not right");
+            }
+            //test offset last dim
+            if (c->Value(c->Dim(offset_shape, 5)) != 3) {
+                return errors::InvalidArgument("the last dim of offset is not right");
+            }
 
             //the output shape of col
             ShapeHandle col_shapes = c->MakeShape(
-                    {batch_size, col_channels, output_shape[0], output_shape[1], output_shape[2],
-                     c->Value(c->Dim(filter_shape, 1)) *
-                     c->Value(c->Dim(filter_shape, 2)) *
-                     c->Value(c->Dim(filter_shape, 3))});
-            cout << "col shape: ";
-            cout << batch_size << col_channels << output_shape[0] << output_shape[1] << output_shape[2] <<
-                 c->Value(c->Dim(filter_shape, 1)) *
-                 c->Value(c->Dim(filter_shape, 2)) *
-                 c->Value(c->Dim(filter_shape, 3)) << endl;
-
+                    {batch_size, col_channels, output_shape[0], output_shape[1], output_shape[2], volume_filter});
 
             ShapeHandle output_shapes = c->MakeShape(
-                    {batch_size, col_channels * c->Value(c->Dim(filter_shape, 0)), output_shape[0], output_shape[1],
-                     output_shape[2]});
-            cout << "output shapes" << batch_size << col_channels * c->Value(c->Dim(filter_shape, 0)) << output_shape[0]
-                 << output_shape[1] << output_shape[2] << endl;
+                    {batch_size, output_channels, output_shape[0], output_shape[1], output_shape[2]});
+
+            //set output shape
             c->set_output(0, output_shapes);
             return Status::OK();
         });
@@ -106,7 +121,7 @@ struct DeformableConv3dFunctor<CPUDevice, T> {
                     const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &kernel_shape,
                     const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilation,
                     int64 deformable_group, T *data_col, T *data_output, const T *data_kernel) {
-        cout << "using cpu\n";
+        cout << "using cpu.\n";
     };
 };
 
@@ -124,13 +139,6 @@ public:
                     errors::InvalidArgument("dilatation_rates too large"));
         OP_REQUIRES_OK(context, context->GetAttr("deformable_groups", &deformable_groups));
         OP_REQUIRES_OK(context, context->GetAttr("padding", &padding));
-
-
-//        cout << '\n' << "dilatation_rates:";
-//        std::copy(begin(dilatation_rates), end(dilatation_rates), std::ostream_iterator<T>(std::cout, " "));
-//        cout << '\n' << "strides:";
-//        std::copy(begin(strides), end(strides), std::ostream_iterator<T>(std::cout, " "));
-//        cout << "\npadding: " << padding << '\n' << "groups: " << deformable_groups << endl;
 
     }
 
@@ -153,7 +161,6 @@ public:
         int64 input_channel = input.dim_size(1);
         int64 filter_channel = filter.dim_size(0);
 
-        //TODO 输入和滤波器都只能是奇数
         for (int i = 0; i < 3; ++i) {
             OP_REQUIRES_OK(context,
                            GetWindowedOutputSize(input.dim_size(i + 2), filter.dim_size(i + 1),
@@ -173,7 +180,7 @@ public:
                  output_shape[0], output_shape[1], output_shape[2]});
 
         // Create an output tensor
-        Tensor *output = NULL;
+        Tensor *output = nullptr;
         OP_REQUIRES_OK(context, context->allocate_output(0, output_shapes, &output));
         T *output_ptr = output->template flat<T>().data();
 
@@ -186,14 +193,6 @@ public:
         const T *input_ptr = input.template flat<T>().data();
         const T *offset_ptr = offset.template flat<T>().data();
         const T *filter_ptr = filter.template flat<T>().data();
-
-//        cout << "pad: " << pads[0] << pads[1] << pads[2]
-//             << "\nstrides: " << strides[0] << strides[1] << strides[2]
-//             << "\nnum col:" << col.NumElements()
-//             << "\nnum filter:" << filter.NumElements()
-//             << "\nnum input:" << input.NumElements()
-//             << "\nnum offset:" << offset.NumElements()
-//             << "\nnume output:" << output->NumElements() << endl;
 
         DeformableConv3dFunctor<Device, T>()(
                 context->eigen_device<Device>(),
