@@ -63,19 +63,19 @@ template<typename T>
 __global__ void DeformableConv3dCudaKernel(const int n, const T *data_im, const T *data_offset,
                                            const int channel_in,
                                            const int length_in, const int height_in, const int width_in,
-                                           const int channel_kernel,
-                                           const int kernel_l, const int kernel_h, const int kernel_w,
+                                           const int channel_filter,
+                                           const int filter_l, const int filter_h, const int filter_w,
                                            const int pad_l, const int pad_h, const int pad_w,
                                            const int stride_l, const int stride_h, const int stride_w,
                                            const int dilation_l, const int dilation_h, const int dilation_w,
                                            const int channel_per_deformable_group,
                                            const int channel_col,
                                            const int length_col, const int height_col, const int width_col,
-                                           T *data_col, T *data_output, const T *data_kernel) {
+                                           T *data_col, T *data_output, const T *data_filter) {
     //CUDA assignment
     CUDA_1D_KERNEL_LOOP(index, n) {
         //something for output col, the format is  ncv(lhw)d
-        const int volume_kernel = kernel_h * kernel_l * kernel_w;
+        const int volume_filter = filter_h * filter_l * filter_w;
         //current conv point
         const int w_col = index % width_col;
         const int h_col = (index / width_col) % height_col;
@@ -84,14 +84,14 @@ __global__ void DeformableConv3dCudaKernel(const int n, const T *data_im, const 
         const int c_col = (((index / width_col) / height_col) / length_col) % channel_col;
         //current batch
         const int n_col = (((index / width_col) / height_col) / length_col) / channel_col;
-        const int depth_col = volume_kernel;
+        const int depth_col = volume_filter;
         const int volume_col = length_col * height_col * width_col;
-        const int depth_offset = volume_kernel;
+        const int depth_offset = volume_filter;
 
         //something for output
         const int n_out = n_col;
         const int volume_out = volume_col;
-        const int channel_out = channel_in * channel_kernel;
+        const int channel_out = channel_in * channel_filter;
 
         //something for input img, the format is ncv(lhw), same like up
         const int w_in = w_col * stride_w - pad_w;
@@ -122,17 +122,17 @@ __global__ void DeformableConv3dCudaKernel(const int n, const T *data_im, const 
                                    l_col * height_col * width_col * depth_offset * 3 +
                                    h_col * width_col * depth_offset * 3 + w_col * depth_offset * 3;
 
-        const T *data_kernel_base_ptr = data_kernel;
+        const T *data_filter_base_ptr = data_filter;
 
         T *data_col_ptr = data_col_base_ptr;
         //for every convolution point, calculate the offset value
-        for (int j = 0; j < kernel_l; j++) {
-            for (int k = 0; k < kernel_h; k++) {
-                for (int l = 0; l < kernel_w; l++) {
+        for (int j = 0; j < filter_l; j++) {
+            for (int k = 0; k < filter_h; k++) {
+                for (int l = 0; l < filter_w; l++) {
                     //get the offset position
-                    int data_offset_l_ptr = j * kernel_h * kernel_w + k * kernel_w + l;
-                    int data_offset_h_ptr = j * kernel_h * kernel_w + k * kernel_w + l + 1;
-                    int data_offset_w_ptr = j * kernel_h * kernel_w + k * kernel_w + l + 2;
+                    int data_offset_l_ptr = j * filter_h * filter_w + k * filter_w + l;
+                    int data_offset_h_ptr = j * filter_h * filter_w + k * filter_w + l + 1;
+                    int data_offset_w_ptr = j * filter_h * filter_w + k * filter_w + l + 2;
 
                     //get the offset
                     T offset_l = data_offset_ptr[data_offset_l_ptr];
@@ -161,17 +161,17 @@ __global__ void DeformableConv3dCudaKernel(const int n, const T *data_im, const 
         }
 
         //do the multiplication
-        const T *data_kernel_ptr = data_kernel_base_ptr;
+        const T *data_filter_ptr = data_filter_base_ptr;
         T *data_out_ptr = data_output_base_ptr;
-        for (int i = 0; i < channel_kernel; ++i) {
+        for (int i = 0; i < channel_filter; ++i) {
             data_out_ptr = data_output_base_ptr + i * volume_out;
-            data_kernel_ptr = data_kernel + i * volume_kernel;
+            data_filter_ptr = data_filter + i * volume_filter;
             T val = 0;
-            for (int j = 0; j < kernel_l; ++j) {
-                for (int k = 0; k < kernel_h; ++k) {
-                    for (int l = 0; l < kernel_w; ++l) {
-                        int64 offset = j * kernel_h * kernel_w + k * kernel_w + l;
-                        val += data_kernel_ptr[offset] * data_col_base_ptr[offset];
+            for (int j = 0; j < filter_l; ++j) {
+                for (int k = 0; k < filter_h; ++k) {
+                    for (int l = 0; l < filter_w; ++l) {
+                        int64 offset = j * filter_h * filter_w + k * filter_w + l;
+                        val += data_filter_ptr[offset] * data_col_base_ptr[offset];
                     }
                 }
             }
@@ -185,11 +185,11 @@ template<typename T>
 struct DeformableConv3dFunctor<GPUDevice, T> {
     void operator()(const GPUDevice &d,
                     const T *data_im, const T *data_offset,
-                    const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &kernel_shape,
+                    const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &filter_shape,
                     const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilation,
-                    int deformable_group, T *data_col, T *data_output, const T *data_kernel) {
+                    int deformable_group, T *data_col, T *data_output, const T *data_filter) {
         //batch size * channel / groups
-        int64 channel_per_deformable_group = im_shape.dim_size(0) * im_shape.dim_size(1) / deformable_group;
+        int64 channel_per_deformable_group = im_shape.dim_size(1) / deformable_group;
         //the cuda kernel used should be same as output col size.
         int64 num_kernels = ProdShape(col_shape, 0, 5);
         //TODO: what is best value
@@ -199,14 +199,14 @@ struct DeformableConv3dFunctor<GPUDevice, T> {
                 << < block_count, thread_per_block, 0, d.stream() >> > (
                 num_kernels, data_im, data_offset,
                         im_shape.dim_size(1), im_shape.dim_size(2), im_shape.dim_size(3), im_shape.dim_size(4),
-                        kernel_shape.dim_size(0),
-                        kernel_shape.dim_size(1), kernel_shape.dim_size(2), kernel_shape.dim_size(3),
+                        filter_shape.dim_size(0),
+                        filter_shape.dim_size(1), filter_shape.dim_size(2), filter_shape.dim_size(3),
                         pad[0], pad[1], pad[2],
                         stride[0], stride[1], stride[2],
                         dilation[0], dilation[1], dilation[2],
                         channel_per_deformable_group,
                         col_shape.dim_size(1), col_shape.dim_size(2), col_shape.dim_size(3), col_shape.dim_size(4),
-                        data_col, data_output, data_kernel);
+                        data_col, data_output, data_filter);
     }
 };
 

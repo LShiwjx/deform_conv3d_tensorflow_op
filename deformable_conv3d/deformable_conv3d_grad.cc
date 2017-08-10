@@ -26,7 +26,7 @@ using CPUDevice = Eigen::ThreadPoolDevice;
 using GPUDevice = Eigen::GpuDevice;
 
 namespace {
-    REGISTER_OP("DeformConvBackpropOp")
+    REGISTER_OP("DeformableConv3dGrad")
             .Input("input: T")
             .Input("filter: T")
             .Input("offset: T")
@@ -34,11 +34,11 @@ namespace {
             .Output("input_grad: T")
             .Output("filter_grad: T")
             .Output("offset_grad: T")
-            .Attr("T: {int64, float, double}")
-            .Attr("strides: list(int)")
-            .Attr("dilatation_rates: list(int)")
-            .Attr("deformable_groups: int")
-            .Attr("padding: {'SAME', 'VALID'}")
+            .Attr("T: {float, double, int64}")
+            .Attr("strides: list(int)= [1,1,1]")
+            .Attr("dilatation_rates: list(int)= [1,1,1]")
+//            .Attr("deformable_groups: int = 1")
+            .Attr("padding: {'SAME', 'VALID'} = 'VALID'")
             .SetShapeFn([](InferenceContext *c) {
                 //make sure the rank of input is right
                 //NCLHW
@@ -56,16 +56,17 @@ namespace {
 
                 //get the attributes
                 vector<int64> strides, dilatation_rates;
-                int64 deformable_groups;
+
                 Padding padding;
                 TF_RETURN_IF_ERROR(c->GetAttr("strides", &strides));
                 TF_RETURN_IF_ERROR(c->GetAttr("dilatation_rates", &dilatation_rates));
-                TF_RETURN_IF_ERROR(c->GetAttr("deformable_groups", &deformable_groups));
+//                TF_RETURN_IF_ERROR(c->GetAttr("deformable_groups", &deformable_groups));
                 TF_RETURN_IF_ERROR(c->GetAttr("padding", &padding));
 
                 //calcute the output shape lhw
                 vector<int64> output_shape(3);
                 vector<int64> pads(3);
+                int64 deformable_groups = c->Value(c->Dim(offset_shape, 0));
                 int64 batch_size = c->Value(c->Dim(input_shape, 0));
                 int64 input_channels = c->Value(c->Dim(input_shape, 1));
                 int64 filter_channels = c->Value(c->Dim(filter_shape, 0));
@@ -90,15 +91,15 @@ namespace {
                     return errors::InvalidArgument("x*w channels != y channels");
                 }
 
-                if (c->Value(c->Dim(out_grad_shape, 3)) != output_shape[0]) {
+                if (c->Value(c->Dim(out_grad_shape, 2)) != output_shape[0]) {
                     return errors::InvalidArgument("x l != y l");
                 }
 
-                if (c->Value(c->Dim(out_grad_shape, 4)) != output_shape[1]) {
+                if (c->Value(c->Dim(out_grad_shape, 3)) != output_shape[1]) {
                     return errors::InvalidArgument("x h != y h");
                 }
 
-                if (c->Value(c->Dim(out_grad_shape, 5)) != output_shape[2]) {
+                if (c->Value(c->Dim(out_grad_shape, 4)) != output_shape[2]) {
                     return errors::InvalidArgument("x w != y w");
                 }
 
@@ -130,6 +131,7 @@ namespace {
                 c->set_output(0, c->input(0));
                 c->set_output(1, c->input(1));
                 c->set_output(2, c->input(2));
+
                 return Status::OK();
             });
 }
@@ -139,10 +141,11 @@ template<typename T>
 struct DeformableConv3dGradFunctor<CPUDevice, T>{
     void operator()(
             const CPUDevice &d,
-            const T *data_im, const T *data_filter, const T *data_offset,
-            const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &kernel_shape,
+            const T *data_img, const T *data_grad_in, const T *data_filter, const T *data_offset,
+            const TensorShape &grad_in_shape, const TensorShape &img_shape,
+            const TensorShape &filter_shape, const TensorShape &offset_shape,
             const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilation,
-            int deformable_group, T *img_grad_ptr, T *filter_grad_ptr, T *offset_grad_ptr) {
+            T *img_grad_ptr, T *filter_grad_ptr, T *offset_grad_ptr) {
         cout << "using cpu" << endl;
     };
 };
@@ -158,7 +161,7 @@ public:
         OP_REQUIRES_OK(context, context->GetAttr("dilatation_rates", &dilatation_rates));
         OP_REQUIRES(context, dilatation_rates.size() == 3,
                     errors::InvalidArgument("dilatation_rates too large"));
-        OP_REQUIRES_OK(context, context->GetAttr("deformable_groups", &deformable_groups));
+//        OP_REQUIRES_OK(context, context->GetAttr("deformable_groups", &deformable_groups));
         OP_REQUIRES_OK(context, context->GetAttr("padding", &padding));
     }
 
@@ -166,19 +169,17 @@ public:
         //get the input
         const Tensor &input = context->input(0);
         const TensorShape &input_shape = input.shape();
-        const T *input_ptr = input.template flat<T>().data();
 
         const Tensor &filter = context->input(1);
         const TensorShape &filter_shape = filter.shape();
-        const T *filter_ptr = filter.template flat<T>().data();
 
         const Tensor &offset = context->input(2);
         const TensorShape &offset_shape = offset.shape();
-        const T *offset_ptr = offset.template flat<T>().data();
 
         const Tensor &out_grad = context->input(3);
-        const T *out_grad_ptr = out_grad.template flat<T>().data();
         const TensorShape &out_grad_shape = out_grad.shape();
+
+
 
         //calculate something
         int filter_channels = filter.dim_size(0);
@@ -197,10 +198,15 @@ public:
             );
         }
         //col buffer
-        const TensorShape col_shape = TensorShape(
-                {batch_size, input_channel,
-                 output_shape[0], output_shape[1], output_shape[2],
-                 ProdShape(filter_shape, 1, filter_shape.dims())});
+//        const TensorShape col_shape = TensorShape(
+//                {batch_size, input_channel,
+//                 output_shape[0], output_shape[1], output_shape[2],
+//                 ProdShape(filter_shape, 1, filter_shape.dims())});
+
+        const T *input_ptr = input.template flat<T>().data();
+        const T *filter_ptr = filter.template flat<T>().data();
+        const T *offset_ptr = offset.template flat<T>().data();
+        const T *out_grad_ptr = out_grad.template flat<T>().data();
 
         //allocate the output
         Tensor *img_grad = nullptr;
@@ -217,9 +223,9 @@ public:
 
         DeformableConv3dGradFunctor<Device, T>()(
                 context->eigen_device<Device>(),
-                input_ptr, filter_ptr, offset_ptr,
-                input_shape, col_shape, filter_shape,
-                pads, strides, dilatation_rates, deformable_groups,
+                input_ptr, out_grad_ptr, filter_ptr, offset_ptr,
+                out_grad_shape, input_shape, filter_shape, offset_shape,
+                pads, strides, dilatation_rates,
                 img_grad_ptr, filter_grad_ptr, offset_grad_ptr
         );
 
@@ -229,7 +235,7 @@ public:
 private:
     vector<int64> strides;
     vector<int64> dilatation_rates;
-    int64 deformable_groups;
+//    int64 deformable_groups;
     Padding padding;
 };
 

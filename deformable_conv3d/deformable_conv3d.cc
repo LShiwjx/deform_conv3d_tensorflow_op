@@ -34,7 +34,7 @@ REGISTER_OP("DeformableConv3d")
         .Output("output: T")
         .Attr("strides: list(int) = [1,1,1]")
         .Attr("dilatation_rates: list(int) = [1,1,1]")
-        .Attr("deformable_groups: int = 1")
+//        .Attr("deformable_groups: int = 1")
         .Attr("padding: {'SAME', 'VALID'} = 'VALID'")
         .Attr("T: {float, double, int64}")
         .SetShapeFn([](InferenceContext *c) {
@@ -50,11 +50,11 @@ REGISTER_OP("DeformableConv3d")
             TF_RETURN_IF_ERROR(c->WithRank(c->input(2), 6, &offset_shape));
             //get the attributes
             vector<int64> strides, dilatation_rates;
-            int64 deformable_groups;
+            int64 deformable_groups = c->Value(c->Dim(offset_shape, 0));
             Padding padding;
             TF_RETURN_IF_ERROR(c->GetAttr("strides", &strides));
             TF_RETURN_IF_ERROR(c->GetAttr("dilatation_rates", &dilatation_rates));
-            TF_RETURN_IF_ERROR(c->GetAttr("deformable_groups", &deformable_groups));
+//            TF_RETURN_IF_ERROR(c->GetAttr("deformable_groups", &deformable_groups));
             TF_RETURN_IF_ERROR(c->GetAttr("padding", &padding));
 
             //calcute the output shape lhw
@@ -118,9 +118,9 @@ template<typename T>
 struct DeformableConv3dFunctor<CPUDevice, T> {
     void operator()(const CPUDevice &d,
                     const T *data_im, const T *data_offset,
-                    const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &kernel_shape,
+                    const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &filter_shape,
                     const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilation,
-                    int64 deformable_group, T *data_col, T *data_output, const T *data_kernel) {
+                    int64 deformable_group, T *data_col, T *data_output, const T *data_filter) {
         cout << "using cpu.\n";
     };
 };
@@ -137,7 +137,7 @@ public:
         OP_REQUIRES_OK(context, context->GetAttr("dilatation_rates", &dilatation_rates));
         OP_REQUIRES(context, dilatation_rates.size() == 3,
                     errors::InvalidArgument("dilatation_rates too large"));
-        OP_REQUIRES_OK(context, context->GetAttr("deformable_groups", &deformable_groups));
+//        OP_REQUIRES_OK(context, context->GetAttr("deformable_groups", &deformable_groups));
         OP_REQUIRES_OK(context, context->GetAttr("padding", &padding));
 
     }
@@ -199,7 +199,7 @@ public:
                 input_ptr,
                 offset_ptr,
                 input_shape, col_shape, filter_shape,
-                pads, strides, dilatation_rates, deformable_groups,
+                pads, strides, dilatation_rates, offset_shape.dim_size(0),
                 col_base_ptr,
                 output_ptr,
                 filter_ptr
@@ -209,7 +209,7 @@ public:
 private:
     vector<int64> strides;
     vector<int64> dilatation_rates;
-    int64 deformable_groups;
+//    int64 deformable_groups;
     Padding padding;
 };
 
