@@ -16,7 +16,7 @@ struct DeformableConv3dFunctor {
     void operator()(const Device &d,
                     const T *data_im, const T *data_offset,
                     const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &filter_shape,
-                    const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilation,
+                    const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilatation,
                     int deformable_group, T *data_col, T *data_output, const T *data_filter);
 };
 

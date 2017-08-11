@@ -67,7 +67,7 @@ __global__ void DeformableConv3dCudaKernel(const int n, const T *data_im, const 
                                            const int filter_l, const int filter_h, const int filter_w,
                                            const int pad_l, const int pad_h, const int pad_w,
                                            const int stride_l, const int stride_h, const int stride_w,
-                                           const int dilation_l, const int dilation_h, const int dilation_w,
+                                           const int dilatation_l, const int dilatation_h, const int dilatation_w,
                                            const int channel_per_deformable_group,
                                            const int channel_col,
                                            const int length_col, const int height_col, const int width_col,
@@ -140,9 +140,9 @@ __global__ void DeformableConv3dCudaKernel(const int n, const T *data_im, const 
                     T offset_w = data_offset_ptr[data_offset_w_ptr];
 
                     //get the value after add offset
-                    T l_in_after = l_in + j * dilation_l + offset_l;
-                    T h_in_after = h_in + k * dilation_h + offset_h;
-                    T w_in_after = w_in + l * dilation_w + offset_w;
+                    T l_in_after = l_in + j * dilatation_l + offset_l;
+                    T h_in_after = h_in + k * dilatation_h + offset_h;
+                    T w_in_after = w_in + l * dilatation_w + offset_w;
 
                     //the value if current point is out of the origin img.
                     //TODO: can try different methods
@@ -186,7 +186,7 @@ struct DeformableConv3dFunctor<GPUDevice, T> {
     void operator()(const GPUDevice &d,
                     const T *data_im, const T *data_offset,
                     const TensorShape &im_shape, const TensorShape &col_shape, const TensorShape &filter_shape,
-                    const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilation,
+                    const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilatation,
                     int deformable_group, T *data_col, T *data_output, const T *data_filter) {
         //batch size * channel / groups
         int64 channel_per_deformable_group = im_shape.dim_size(1) / deformable_group;
@@ -203,7 +203,7 @@ struct DeformableConv3dFunctor<GPUDevice, T> {
                         filter_shape.dim_size(1), filter_shape.dim_size(2), filter_shape.dim_size(3),
                         pad[0], pad[1], pad[2],
                         stride[0], stride[1], stride[2],
-                        dilation[0], dilation[1], dilation[2],
+                        dilatation[0], dilatation[1], dilatation[2],
                         channel_per_deformable_group,
                         col_shape.dim_size(1), col_shape.dim_size(2), col_shape.dim_size(3), col_shape.dim_size(4),
                         data_col, data_output, data_filter);

@@ -11,56 +11,6 @@
 
 using namespace tensorflow;
 
-//interpolation
-template<typename T>
-__device__ T Tri_Linear(const T *bottom_data,
-                        const int length, const int height, const int width,
-                        const double l, const double h, const double w) {
-    //length and area
-    const int data_width_1d = width;
-    const int data_width_2d = height * width;
-
-    //get the cube, the function floor can not be used in template
-    int l_low = floor(l);
-    int h_low = floor(h);
-    int w_low = floor(w);
-    int l_high = l_low + 1 > length ? l_low : l_low + 1;
-    int h_high = h_low + 1 > height ? h_low : h_low + 1;
-    int w_high = w_low + 1 > width ? w_low : w_low + 1;
-
-    //the corner, format is lhw
-    T c000 = bottom_data[l_low * data_width_2d + h_low * data_width_1d + w_low];
-    T c001 = bottom_data[l_low * data_width_2d + h_low * data_width_1d + w_high];
-    T c010 = bottom_data[l_low * data_width_2d + h_high * data_width_1d + w_low];
-    T c011 = bottom_data[l_low * data_width_2d + h_high * data_width_1d + w_high];
-
-    T c100 = bottom_data[l_high * data_width_2d + h_low * data_width_1d + w_low];
-    T c101 = bottom_data[l_high * data_width_2d + h_low * data_width_1d + w_high];
-    T c110 = bottom_data[l_high * data_width_2d + h_high * data_width_1d + w_low];
-    T c111 = bottom_data[l_high * data_width_2d + h_high * data_width_1d + w_high];
-
-    //calculate the distance between the point and corner, using 1 to make sure using the low if equal
-    T l_width = w - w_low;
-    T h_width = 1 - l_width;
-    T l_height = h - h_low;
-    T h_height = 1 - l_height;
-    T l_length = l - l_low;
-    T h_length = 1 - l_length;
-
-    //interpolation
-    T c00 = c000 * h_width + c001 * l_width;
-    T c01 = c010 * h_width + c011 * l_width;
-    T c10 = c100 * h_width + c101 * l_width;
-    T c11 = c110 * h_width + c111 * l_width;
-
-    T c0 = c00 * h_height + c01 * l_height;
-    T c1 = c10 * h_height + c11 * l_height;
-
-    T c = c0 * h_length + c1 * l_length;
-
-    return c;
-}
-
 //------------------------------------------------------forward grad---------------------------------------------//
 template<typename T>
 __global__ void DeformableConv3dInputGradCudaKernel(
@@ -95,6 +45,7 @@ __global__ void DeformableConv3dInputGradCudaKernel(
         const int l_forward = index / forward_width / forward_height % forward_length;
         const int c_forward = index / forward_width / forward_height / forward_length % forward_channel;
         const int n_forward = index / forward_width / forward_height / forward_length / forward_channel;
+//        printf("thread:%d: %d %d\n",threadIdx.x,index, n_forward);
         //current position for backward
         const int n_backward = n_forward;
         const int c_backward = c_forward * filter_channel;
@@ -114,13 +65,14 @@ __global__ void DeformableConv3dInputGradCudaKernel(
         T *data_grad_forward_base_ptr =
                 data_grad_forward + n_forward * forward_channel * forward_volume + c_forward * forward_volume
                 + l_forward * forward_height * forward_width + h_forward * forward_width + w_forward;
+        *data_grad_forward_base_ptr = 0;
 
         //sigma_backward{  sigma_s{w_s * [ |p-q|>1?0: (p==q?1:|p-q|) ] } * backward }= forward
         for (int c = 0; c < filter_channel; ++c) {
             for (int i = 0; i < backward_length; ++i) {
                 for (int j = 0; j < backward_height; ++j) {
                     for (int k = 0; k < backward_width; ++k) {
-                        const T *data_backward_ptr = data_backward_base_ptr + c * forward_channel * backward_volume
+                        const T *data_backward_ptr = data_backward_base_ptr + c * backward_volume
                                                      + i * backward_height * backward_width + j * backward_width + k;
                         T grad = 0;
                         const int curr_forward_l = i * stride_l - pad_l;
@@ -150,16 +102,15 @@ __global__ void DeformableConv3dInputGradCudaKernel(
                                     T p_w = curr_forward_w + n + data_off_ptr[2];
 
                                     //abs, can not use abs() because of the cuda
-
                                     T a_abs = p_l - l_forward > 0 ? p_l - l_forward : l_forward - p_l;
                                     T b_abs = p_h - h_forward > 0 ? p_h - h_forward : h_forward - p_h;
                                     T c_abs = p_w - w_forward > 0 ? p_w - w_forward : w_forward - p_w;
 
                                     //compare the p with forward in this cuda thread
-                                    T a = a_abs >= 1 ? 0 : (a_abs == 0 ? 1 : a_abs);
-                                    T b = b_abs >= 1 ? 0 : (b_abs == 0 ? 1 : b_abs);
-                                    T c = c_abs >= 1 ? 0 : (c_abs == 0 ? 1 : c_abs);
-
+                                    T a = a_abs >= 1 ? 0 : (1 - a_abs);
+                                    T b = b_abs >= 1 ? 0 : (1 - b_abs);
+                                    T c = c_abs >= 1 ? 0 : (1 - c_abs);
+                                    //对于每个输出，找到对应的卷积初始位置，根据偏执和卷积核判断是否相关
                                     grad += (*data_filter_ptr) * a * b * c;
 
                                 }
@@ -208,7 +159,7 @@ __global__ void DeformableConv3dFilterGradCudaKernel(
         T *data_grad_filter_ptr =
                 data_grad_filter + c_filter * filter_volume + l_filter * filter_height * filter_width +
                 h_filter * filter_width + w_filter;
-
+        *data_grad_filter_ptr = 0;
 
         //sigma_n sigma_c_forward grad_filter_s' = grad_filter_s
         for (int b = 0; b < batch_size; ++b) {
@@ -259,23 +210,26 @@ __global__ void DeformableConv3dFilterGradCudaKernel(
                             for (int l = 0; l < forward_length; ++l) {
                                 for (int m = 0; m < forward_height; ++m) {
                                     for (int n = 0; n < forward_width; ++n) {
-                                        //x_q
-                                        const T *data_forward_ptr =
-                                                data_forward_base_ptr + l * forward_height * forward_width +
-                                                m * forward_width + n;
+//                                        if(p_l - l>1||p_l-l<-1||p_h - m>1||p_h-m<-1||p_w - m>1||p_w-m<-1)break;
                                         //abs of p-q, can not use abs() because of the cuda
                                         T a_abs = p_l - l > 0 ? p_l - l : l - p_l;
                                         T b_abs = p_h - m > 0 ? p_h - m : m - p_h;
                                         T c_abs = p_w - n > 0 ? p_w - n : n - p_w;
-                                        //G(p-q) = |p-q|>=1 ? 0 : (p==q?1:|p-q|)
-                                        T a = a_abs >= 1 ? 0 : (a_abs == 0 ? 1 : a_abs);
-                                        T b = b_abs >= 1 ? 0 : (b_abs == 0 ? 1 : b_abs);
-                                        T c = c_abs >= 1 ? 0 : (c_abs == 0 ? 1 : c_abs);
+                                        //G(p-q) = |p-q|>=1 ? 0 : (1-|p-q|)
+                                        T a = a_abs >= 1 ? 0 : (1 - a_abs);
+                                        T b = b_abs >= 1 ? 0 : (1 - b_abs);
+                                        T c = c_abs >= 1 ? 0 : (1 - c_abs);
+                                        //x_q
+                                        const T *data_forward_ptr =
+                                                data_forward_base_ptr + l * forward_height * forward_width +
+                                                m * forward_width + n;
+
                                         val += (*data_forward_ptr) * a * b * c;
                                     }
                                 }
                             }//forward
                             // sigma_o @y_o/@w_s * y_o
+
                             *data_grad_filter_ptr += (*data_backward_ptr) * val;
                         }
                     }
@@ -334,7 +288,7 @@ __global__ void DeformableConv3dOffsetGradCudaKernel(
                 w_forward * filter_volume * 3 +
                 l_filter * filter_height * filter_width * 3 +
                 h_filter * filter_width * 3 + w_filter * 3;
-
+        *data_grad_offset_ptr = 0;
         //current data ptr for offset
         const T *data_off_ptr = data_offset + g_off * off_volume * filter_volume * 3 +
                                 l_forward * forward_height * forward_width * filter_volume * 3 +
@@ -342,7 +296,8 @@ __global__ void DeformableConv3dOffsetGradCudaKernel(
                                 w_forward * filter_volume * 3 +
                                 l_filter * filter_height * filter_width * 3 +
                                 h_filter * filter_width * 3 + w_filter * 3;
-
+        //TODO: maybe need an alpha
+        T grad[3] = {data_off_ptr[0], data_off_ptr[1], data_off_ptr[2]};
         //sigma_n,c1,c2 {w_s * sigma_q{ x_q * G'(p,q)} * y_o} = @y/@off_ps
         for (int n = 0; n < batch_size; ++n) {
             for (int c1 = 0; c1 < channel_per_deformable_group; ++c1) {
@@ -356,52 +311,52 @@ __global__ void DeformableConv3dOffsetGradCudaKernel(
                     const T *data_backward_base_ptr =
                             data_backward + n * backward_channel * backward_volume +
                             (c1 + c_forward) * filter_channel * backward_volume + c2 * backward_volume;
-                    const T *data_forward_base_ptr =
-                            data_forward + n * forward_channel * forward_volume +
-                            (c1 + c_forward) * forward_volume;
+//                    const T *data_forward_base_ptr =
+//                            data_forward + n * forward_channel * forward_volume +
+//                            (c1 + c_forward) * forward_volume;
 
                     //p' = o*stride - pad
                     //o
-                    const int curr_backward_l = (l_forward - l_filter + pad_l) / stride_l;
-                    const int curr_backward_h = (h_forward - h_filter + pad_h) / stride_h;
-                    const int curr_backward_w = (w_forward - w_filter + pad_w) / stride_w;
+                    const int curr_backward_l = (l_forward + pad_l) / stride_l;
+                    const int curr_backward_h = (h_forward + pad_h) / stride_h;
+                    const int curr_backward_w = (w_forward + pad_w) / stride_w;
                     //y_o
                     const T *data_backward_ptr =
                             data_backward_base_ptr + curr_backward_l * backward_height * backward_width
                             + curr_backward_h * backward_width + curr_backward_w;
 
                     //sigma_q{ x_q * G'(p,q)} = grad
-                    T grad[3] = {0};
-                    for (int i = 0; i < forward_length; ++i) {
-                        for (int j = 0; j < forward_height; ++j) {
-                            for (int k = 0; k < forward_width; ++k) {
+
+//                    for (int i = 0; i < forward_length; ++i) {
+//                        for (int j = 0; j < forward_height; ++j) {
+//                            for (int k = 0; k < forward_width; ++k) {
                                 //p = p' + off_p's position after adding the offset
-                                T p_l = l_forward + data_off_ptr[0];
-                                T p_h = h_forward + data_off_ptr[1];
-                                T p_w = w_forward + data_off_ptr[2];
+//                                T p_l = l_forward + data_off_ptr[0];
+//                                T p_h = h_forward + data_off_ptr[1];
+//                                T p_w = w_forward + data_off_ptr[2];
 
                                 //abs of p-q, can not use abs() because of the cuda
-                                T a_abs = p_l - i > 0 ? p_l - i : i - p_l;
-                                T b_abs = p_h - j > 0 ? p_h - j : j - p_h;
-                                T c_abs = p_w - k > 0 ? p_w - k : k - p_w;
+//                                T a_abs = p_l - i > 0 ? p_l - i : i - p_l;
+//                                T b_abs = p_h - j > 0 ? p_h - j : j - p_h;
+//                                T c_abs = p_w - k > 0 ? p_w - k : k - p_w;
 
                                 //G'(p, q) = |p-q|>=1 or p==q ? 0 : (p>q?1:-1)
-                                T a = (a_abs >= 1 || a_abs == 0) ? 0 : (p_l - i > 0 ? 1 : -1);
-                                T b = (b_abs >= 1 || b_abs == 0) ? 0 : (p_h - j > 0 ? 1 : -1);
-                                T c = (c_abs >= 1 || c_abs == 0) ? 0 : (p_w - k > 0 ? 1 : -1);
+//                                T a = (a_abs >= 1 ) ? 0 : (p_l - i > 0 ? -1 : 1);
+//                                T b = (b_abs >= 1 ) ? 0 : (p_h - j > 0 ? -1 : 1);
+//                                T c = (c_abs >= 1 ) ? 0 : (p_w - k > 0 ? -1 : 1);
 
                                 //x_q
-                                const T *data_forward_ptr =
-                                        data_forward_base_ptr +
-                                        i * forward_height * forward_width + j * forward_width + k;
+//                                const T *data_forward_ptr =
+//                                        data_forward_base_ptr +
+//                                        i * forward_height * forward_width + j * forward_width + k;
 
                                 //x_q * G'(p,q)
-                                grad[0] += a * (*data_forward_ptr);
-                                grad[1] += b * (*data_forward_ptr);
-                                grad[2] += c * (*data_forward_ptr);
-                            }
-                        }
-                    }
+//                                grad[0] += a * (*data_forward_ptr);
+//                                grad[1] += b * (*data_forward_ptr);
+//                                grad[2] += c * (*data_forward_ptr);
+//                            }
+//                        }
+//                    }
                     //w_s * grad * y_o
                     *data_grad_offset_ptr += grad[0] * (*data_filter_ptr) * (*data_backward_ptr);
                     *(data_grad_offset_ptr + 1) += grad[1] * (*data_filter_ptr) * (*data_backward_ptr);
@@ -421,7 +376,6 @@ struct DeformableConv3dGradFunctor<GPUDevice, T> {
             const TensorShape &filter_shape, const TensorShape &offset_shape,
             const vector<int64> &pad, const vector<int64> &stride, const vector<int64> &dilation,
             T *forward_grad_ptr, T *filter_grad_ptr, T *offset_grad_ptr) {
-        clock_t t0 = clock();
         //the cuda kernel used should be same as output col size.
         int num_kernels_forward = ProdShape(forward_shape);
         int num_kernels_backward = ProdShape(backward_shape);
@@ -429,6 +383,8 @@ struct DeformableConv3dGradFunctor<GPUDevice, T> {
         //TODO: what is best value
         int block_count = 1024;
         int thread_per_block = 1024;
+
+        clock_t t0 = clock();
         DeformableConv3dInputGradCudaKernel<T>
                 << < block_count, thread_per_block, 0, d.stream() >> > (
                 data_backward, data_filter, data_offset,
@@ -462,7 +418,7 @@ struct DeformableConv3dGradFunctor<GPUDevice, T> {
                         filter_grad_ptr,
                         num_kernels_backward);
         clock_t t2 = clock();
-        cout << "Filter grad: " << (t2 - t1) * 1.0 / CLOCKS_PER_SEC * 1000 << std::endl;
+        cout << "Filter grad: " << (t2 - t0) * 1.0 / CLOCKS_PER_SEC * 1000 << std::endl;
         DeformableConv3dOffsetGradCudaKernel<T>
                 << < block_count, thread_per_block, 0, d.stream() >> > (
                 data_forward, data_backward, data_filter, data_offset,
@@ -479,7 +435,7 @@ struct DeformableConv3dGradFunctor<GPUDevice, T> {
                         offset_grad_ptr,
                         num_kernels_offset);
         clock_t t3 = clock();
-        cout << "Offset grad: " << (t3 - t2) * 1.0 / CLOCKS_PER_SEC * 1000 << std::endl;
+        cout << "Offset grad: " << (t3 - t0) * 1.0 / CLOCKS_PER_SEC * 1000 << std::endl;
     }
 };
 

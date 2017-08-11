@@ -2,17 +2,18 @@ import tensorflow as tf
 import numpy as np
 
 deformable_conv3d_grad_module = tf.load_op_library('./deformable_conv3d_grad.so')
-offset = [[[[[[0, 0, 0]] * 27] * 5] * 5] * 5]  # (1,5,5,5,27,3)
-filters = [[[[1, 1, 1]] * 3] * 3] * 2
+offset = [[[[[[1, 0, 0]] * 1] * 3] * 3] * 3]  # (1,5,5,5,27,3)
+filters = [[[[1]] * 1] * 1] * 2
 grad = [[[[[1] * 3] * 3] * 3] * 6] * 2
-inputs = [[[[[1.] * 5] * 5] * 5] * 3] * 2
+inputs = [[[[[1.] * 3] * 3] * 3] * 3] * 2
 
 with tf.Session(''):
     result = deformable_conv3d_grad_module.deformable_conv3d_grad \
         (inputs, filters, offset, grad)
+    # result[0].eval()
     print(result[0].eval())
-    # print(result[1].eval())
-    # print(result[2].eval())
+    print(result[1].eval())
+    print(result[2].eval())
 
 
     # print(grad)

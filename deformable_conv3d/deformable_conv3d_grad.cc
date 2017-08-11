@@ -205,7 +205,7 @@ public:
         Tensor *img_grad = nullptr;
         OP_REQUIRES_OK(context, context->allocate_output(0, input_shape, &img_grad));
         T *img_grad_ptr = img_grad->template flat<T>().data();
-
+//        cout<<input_shape.dims()<<input_shape.dim_size(0)<<endl;
         Tensor *filter_grad = nullptr;
         OP_REQUIRES_OK(context, context->allocate_output(1, filter_shape, &filter_grad));
         T *filter_grad_ptr = filter_grad->template flat<T>().data();

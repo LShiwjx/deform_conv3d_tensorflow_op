@@ -11,7 +11,7 @@ import deformable_conv3d.deformable_conv3d_op as deform_conv_op
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_integer('batch_size', 4,
+tf.app.flags.DEFINE_integer('batch_size', 100,
                             """Batch size.""")
 tf.app.flags.DEFINE_integer('num_batches', 100,
                             """Number of batches to run.""")
@@ -57,8 +57,8 @@ def run_benchmark():
     timing_entries = []
     with tf.Graph().as_default():
         # Generate some dummy images.
-        image_size = 9
-        video_size = 9
+        image_size = 225
+        video_size = 3
         kernel_length = 3
         kernel_height = 3
         kernel_width = 3
