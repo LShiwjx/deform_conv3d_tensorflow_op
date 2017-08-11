@@ -105,7 +105,7 @@ __global__ void DeformableConv3dCudaKernel(const int n, const T *data_im, const 
         const int deformable_group_index = c_col / channel_per_deformable_group;
 
 
-        //current data ptr for output, format is NCLHW
+        //current data ptr for output, format is NC(c_i,c_f)LHW
         T *data_output_base_ptr = data_output + n_out * channel_out * volume_out +
                                   l_col * height_col * width_col + h_col * width_col + w_col;
 

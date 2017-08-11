@@ -31,4 +31,5 @@ inline int ProdShape(const TensorShape &shape, int start = 0, int end = -1) {
     }
     return res;
 }
+
 #endif //DEFORMABE_CONV_DEFORMABLE_CONV3D_GRAD_H

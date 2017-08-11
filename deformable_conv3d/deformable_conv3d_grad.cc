@@ -78,9 +78,6 @@ namespace {
                             padding, &output_shape[i], &pads[i]));
                 }
 
-                cout << "col shape: ";
-                cout << batch_size << input_channels << output_shape[0] << output_shape[1] << output_shape[2] <<
-                 volume_filter << endl;
 
                 //make sure the value of out_grad_shape is right
                 if (c->Value(c->Dim(out_grad_shape, 0)) != batch_size) {
@@ -197,11 +194,7 @@ public:
                                                  strides[i], padding, &(output_shape[i]), &pads[i])
             );
         }
-        //col buffer
-//        const TensorShape col_shape = TensorShape(
-//                {batch_size, input_channel,
-//                 output_shape[0], output_shape[1], output_shape[2],
-//                 ProdShape(filter_shape, 1, filter_shape.dims())});
+
 
         const T *input_ptr = input.template flat<T>().data();
         const T *filter_ptr = filter.template flat<T>().data();

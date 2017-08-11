@@ -57,7 +57,7 @@ def run_benchmark():
     timing_entries = []
     with tf.Graph().as_default():
         # Generate some dummy images.
-        image_size = 225
+        image_size = 9
         video_size = 9
         kernel_length = 3
         kernel_height = 3
@@ -81,7 +81,7 @@ def run_benchmark():
                                               stddev=1e-1))
         parameters = [kernel]
 
-        last_layer = deform_conv_op.deformable_conv3d_op(images, kernel, offset)
+        last_layer = deform_conv_op.deformable_conv3d(images, kernel, offset)
 
         # Build an initialization operation.
         init = tf.global_variables_initializer()
