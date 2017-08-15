@@ -20,9 +20,9 @@ __device__ T Tri_Linear(const T *bottom_data,
     int l_low = floor(l);
     int h_low = floor(h);
     int w_low = floor(w);
-    int l_high = l_low + 1 > length ? l_low : l_low + 1;
-    int h_high = h_low + 1 > height ? h_low : h_low + 1;
-    int w_high = w_low + 1 > width ? w_low : w_low + 1;
+    int l_high = l_low == l ? l_low : l_low + 1;
+    int h_high = h_low == h ? h_low : h_low + 1;
+    int w_high = w_low == w ? w_low : w_low + 1;
 
     //the corner, format is lhw
     T c000 = bottom_data[l_low * data_width_2d + h_low * data_width_1d + w_low];
@@ -60,7 +60,7 @@ __device__ T Tri_Linear(const T *bottom_data,
 
 // Define the CUDA kernel.
 template<typename T>
-__global__ void DeformConv3dCudaKernel(const int n,
+__global__ void DeformConv3dCudaKernel(CudaLaunchConfig config,
                                        const T *data_im, const T *data_filter, const T *data_offset,
                                        const int batch_size, const int im_channel,
                                        const int im_l, const int im_h, const int im_w,
@@ -73,9 +73,7 @@ __global__ void DeformConv3dCudaKernel(const int n,
                                        const int dilatation_l, const int dilatation_h, const int dilatation_w,
                                        T *data_output) {
     //CUDA assignment
-    CUDA_1D_KERNEL_LOOP(index, n) {
-
-
+    CUDA_1D_KERNEL_LOOP(index, config.virtual_thread_count) {
         const int volume_filter = filter_w * filter_h * filter_l;
         const int volume_in = im_w * im_h * im_l;
         const int volume_out = output_w * output_h * output_l;
@@ -126,9 +124,9 @@ __global__ void DeformConv3dCudaKernel(const int n,
                     int offset = j * filter_h * filter_w + k * filter_w + l;
 
                     //get the value after add offset
-                    T l_in_after = l_in + j * dilatation_l + data_offset_base_ptr[offset];
-                    T h_in_after = h_in + k * dilatation_h + data_offset_base_ptr[offset + 1];
-                    T w_in_after = w_in + l * dilatation_w + data_offset_base_ptr[offset + 2];
+                    T l_in_after = l_in + j * dilatation_l + data_offset_base_ptr[offset * 3];
+                    T h_in_after = h_in + k * dilatation_h + data_offset_base_ptr[offset * 3 + 1];
+                    T w_in_after = w_in + l * dilatation_w + data_offset_base_ptr[offset * 3 + 2];
 
                     //the value if current point is out of the origin img.
                     //TODO: can try different methods
@@ -162,12 +160,10 @@ struct DeformConv3dFunctor<GPUDevice, T> {
                     T *data_output) {
         //the cuda kernel used should be same as output col size.
         int num_kernels = ProdShape(output_shape);
-        //TODO: what is best value
-        int block_count = 1024;
-        int thread_per_block = 1024;
+        CudaLaunchConfig config = GetCudaLaunchConfig(num_kernels, d);
         DeformConv3dCudaKernel<T>
-                << < block_count, thread_per_block, 0, d.stream() >> > (
-                num_kernels, data_im, data_filter, data_offset,
+                << < config.block_count, config.thread_per_block, 0, d.stream() >> > (
+                config, data_im, data_filter, data_offset,
                         im_shape[0], im_shape[1], im_shape[2], im_shape[3], im_shape[4],
                         filter_shape[0], filter_shape[1], filter_shape[2], filter_shape[3],
                         offset_shape[0],

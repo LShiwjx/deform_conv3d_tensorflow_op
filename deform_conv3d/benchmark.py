@@ -57,15 +57,15 @@ def run_benchmark():
     timing_entries = []
     with tf.Graph().as_default():
         # Generate some dummy images.
-        image_size = 127
+        image_size = 15
         image_channel = 3
         video_size = 3
         kernel_length = 3
         kernel_height = 3
         kernel_width = 3
         out_length = 1
-        out_height = 125
-        out_width = 125
+        out_height = 13
+        out_width = 13
         kernel_channel = 2
         offset_group = 1
         # Note that our padding definition is slightly different the cuda-convnet.

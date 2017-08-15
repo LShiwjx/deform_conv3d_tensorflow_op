@@ -170,7 +170,6 @@ public:
         setZero<Device,T>()(context->eigen_device<Device>(),ProdShape(input_shape),input_grad_ptr);
         setZero<Device,T>()(context->eigen_device<Device>(),ProdShape(filter_shape),filter_grad_ptr);
         setZero<Device,T>()(context->eigen_device<Device>(),ProdShape(offset_shape),offset_grad_ptr);
-
         DeformConv3dGradFunctor<Device, T>()(
                 context->eigen_device<Device>(),
                 input_ptr, filter_ptr, offset_ptr, residual_ptr,

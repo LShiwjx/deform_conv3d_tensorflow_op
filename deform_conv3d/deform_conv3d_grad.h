@@ -11,6 +11,10 @@
 using namespace std;
 using namespace tensorflow;
 
+#define CUDA_AXIS_KERNEL_LOOP(i, n, axis)                                  \
+  for (int i = blockIdx.axis * blockDim.axis + threadIdx.axis; i < n.axis; \
+       i += blockDim.axis * gridDim.axis)
+
 template<typename Device, typename T>
 struct DeformConv3dGradFunctor {
     void operator()(const Device &d,
