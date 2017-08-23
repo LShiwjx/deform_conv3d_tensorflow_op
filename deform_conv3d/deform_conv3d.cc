@@ -139,10 +139,10 @@ public:
             OP_REQUIRES(context, offset_size[i] == output_size[i],
                         errors::InvalidArgument("offset: ", offset_size[i]," vs output: ", output_size[i]));
 
-            OP_REQUIRES(context, input_size[i] %2==1,
-                        errors::InvalidArgument("input: ", input_size[i]," is not singular "));
-            OP_REQUIRES(context, filter_size[i] %2==1,
-                        errors::InvalidArgument("filter: ", filter_size[i]," is not singular "));
+//            OP_REQUIRES(context, input_size[i] %2==1,
+//                        errors::InvalidArgument("input: ", input_size[i]," is not singular "));
+//            OP_REQUIRES(context, filter_size[i] %2==1,
+//                        errors::InvalidArgument("filter: ", filter_size[i]," is not singular "));
 
         }
 
