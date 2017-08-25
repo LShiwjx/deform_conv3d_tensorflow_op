@@ -39,6 +39,20 @@ namespace {
             .Attr("dilatation_rates: list(int)= [1,1,1]")
             .Attr("padding: {'SAME', 'VALID'} = 'VALID'")
             .SetShapeFn([](InferenceContext *c) {
+                //make sure the rank of input is right
+                //NCLHW
+                ShapeHandle input_shape;
+                TF_RETURN_IF_ERROR(c->WithRank(c->input(0), 5, &input_shape));
+                //C'L'H'W'
+                ShapeHandle filter_shape;
+                TF_RETURN_IF_ERROR(c->WithRank(c->input(1), 4, &filter_shape));
+                //NGL"H"W"L'H'W'3
+                ShapeHandle offset_shape;
+                TF_RETURN_IF_ERROR(c->WithRank(c->input(2), 9, &offset_shape));
+                //NC'*CL"H"W"
+                ShapeHandle out_shape;
+                TF_RETURN_IF_ERROR(c->WithRank(c->input(3), 5, &out_shape));
+
                 c->set_output(0, c->input(0));
                 c->set_output(1, c->input(1));
                 c->set_output(2, c->input(2));
@@ -98,16 +112,19 @@ public:
         vector<int64> input_size = {input.dim_size(2), input.dim_size(3), input.dim_size(4)};
         int64 filter_channel = filter.dim_size(0);
         vector<int64> filter_size = {filter.dim_size(1), filter.dim_size(2), filter.dim_size(3)};
-        int64 offset_group = offset.dim_size(0);
-        vector<int64> offset_size = {offset.dim_size(1), offset.dim_size(2), offset.dim_size(3),
-                                     offset.dim_size(4), offset.dim_size(5), offset.dim_size(6)};
+        int64 offset_batch_size = offset.dim_size(0);
+        int64 offset_group = offset.dim_size(1);
+        vector<int64> offset_size = {offset.dim_size(2), offset.dim_size(3), offset.dim_size(4),
+                                     offset.dim_size(5), offset.dim_size(6), offset.dim_size(7)};
         int64 residual_batch_size = residual.dim_size(0);
         int64 residual_channel = residual.dim_size(1);
         vector<int64> residual_size = {residual.dim_size(2), residual.dim_size(3), residual.dim_size(4)};
 
         //check everything
-        OP_REQUIRES(context, offset.dim_size(7) == 3,
+        OP_REQUIRES(context, offset.dim_size(8) == 3,
                     errors::InvalidArgument("last dim_size of offset should be 3"));
+        OP_REQUIRES(context, offset_batch_size == input_batch_size,
+                    errors::InvalidArgument("offset_batch_size"));
         OP_REQUIRES(context, residual_batch_size == input_batch_size,
                     errors::InvalidArgument("residual_batch_size"));
         OP_REQUIRES(context, residual_channel == filter_channel * input_channel,
@@ -126,13 +143,7 @@ public:
 
             OP_REQUIRES(context, residual_size[i] == output_size[i],
                         errors::InvalidArgument("residual: ", residual_size[i], " vs output: ", output_size[i]));
-
-//            OP_REQUIRES(context, input_size[i] % 2 == 1,
-//                        errors::InvalidArgument("input: ", input_size[i], " is not singular "));
-//            OP_REQUIRES(context, filter_size[i] % 2 == 1,
-//                        errors::InvalidArgument("filter: ", filter_size[i], " is not singular "));
         }
-
 
         const T *input_ptr = input.template flat<T>().data();
         const T *filter_ptr = filter.template flat<T>().data();
@@ -154,8 +165,8 @@ public:
 
         Tensor *offset_grad = nullptr;
         OP_REQUIRES_OK(context, context->allocate_output(2, TensorShape(
-                {offset_group, offset_size[0], offset_size[1], offset_size[2], offset_size[3], offset_size[4],
-                 offset_size[5], 3}), &offset_grad));
+                {offset_batch_size, offset_group, offset_size[0], offset_size[1], offset_size[2],
+                 offset_size[3], offset_size[4], offset_size[5], 3}), &offset_grad));
         T *offset_grad_ptr = offset_grad->template flat<T>().data();
 
 
@@ -164,12 +175,13 @@ public:
         const vector<int64> input_shape = {input_batch_size, input_channel,
                                            input_size[0], input_size[1], input_size[2]};
         const vector<int64> filter_shape = {filter_channel, filter_size[0], filter_size[1], filter_size[2]};
-        const vector<int64> offset_shape = {offset_group, offset_size[0], offset_size[1], offset_size[2],
-                                            offset_size[3], offset_size[4], offset_size[5], 3};
+        const vector<int64> offset_shape = {offset_batch_size, offset_group, offset_size[0], offset_size[1],
+                                            offset_size[2], offset_size[3], offset_size[4], offset_size[5], 3};
 
         setZero<Device,T>()(context->eigen_device<Device>(),ProdShape(input_shape),input_grad_ptr);
         setZero<Device,T>()(context->eigen_device<Device>(),ProdShape(filter_shape),filter_grad_ptr);
         setZero<Device,T>()(context->eigen_device<Device>(),ProdShape(offset_shape),offset_grad_ptr);
+
         DeformConv3dGradFunctor<Device, T>()(
                 context->eigen_device<Device>(),
                 input_ptr, filter_ptr, offset_ptr, residual_ptr,

@@ -85,7 +85,6 @@ __global__ void DeformConv3dCudaKernel(CudaLaunchConfig config,
         const int c_filter = (((index / output_w) / output_h) / output_l) / im_channel % filter_channel;
         const int n_out = (((index / output_w) / output_h) / output_l) / im_channel / filter_channel;
 
-//        printf("thread： %d %d %d %d \n", threadIdx.x, n_out, c_filter, c_in);
         //current data ptr for output, format is N(C*C')L"H"W"
         T *data_output_ptr =
                 data_output + n_out * im_channel * filter_channel * volume_out +
@@ -108,7 +107,8 @@ __global__ void DeformConv3dCudaKernel(CudaLaunchConfig config,
         const T *data_img_base_ptr = data_im + n_out * im_channel * volume_in + c_in * volume_in;
 
         //current data ptr for offset value, off format is GL"H"W"L'H'W'3
-        const T *data_offset_base_ptr = data_offset + deformable_group_index * volume_out * volume_filter * 3 +
+        const T *data_offset_base_ptr = data_offset + n_out * offset_group * volume_out * volume_filter * 3 +
+                                        deformable_group_index * volume_out * volume_filter * 3 +
                                         l_out * output_h * output_w * volume_filter * 3 +
                                         h_out * output_w * volume_filter * 3 + w_out * volume_filter * 3;
         //current data ptr for filter value, off format is C'L'H'W'
@@ -166,7 +166,7 @@ struct DeformConv3dFunctor<GPUDevice, T> {
                 config, data_im, data_filter, data_offset,
                         im_shape[0], im_shape[1], im_shape[2], im_shape[3], im_shape[4],
                         filter_shape[0], filter_shape[1], filter_shape[2], filter_shape[3],
-                        offset_shape[0],
+                        offset_shape[1],
                         output_shape[2], output_shape[3], output_shape[4],
                         pad[0], pad[1], pad[2],
                         stride[0], stride[1], stride[2],

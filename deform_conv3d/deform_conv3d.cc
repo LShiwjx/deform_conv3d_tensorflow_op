@@ -44,9 +44,9 @@ REGISTER_OP("DeformConv3d")
             //C'L'H'W'
             ShapeHandle filter_shape;
             TF_RETURN_IF_ERROR(c->WithRank(c->input(1), 4, &filter_shape));
-            //GL"H"W"L'H'W'3
+            //NGL"H"W"L'H'W'3
             ShapeHandle offset_shape;
-            TF_RETURN_IF_ERROR(c->WithRank(c->input(2), 8, &offset_shape));
+            TF_RETURN_IF_ERROR(c->WithRank(c->input(2), 9, &offset_shape));
 
 
             //calcute the output shape lhw
@@ -110,7 +110,7 @@ public:
         const Tensor &input = context->input(0);
         //C'L'H'W'
         const Tensor &filter = context->input(1);
-        //GL"H"W"L'H'W'3
+        //NGL"H"W"L'H'W'3
         const Tensor &offset = context->input(2);
 
         //shape of output L"H"W"
@@ -121,12 +121,15 @@ public:
         vector<int64> input_size = {input.dim_size(2), input.dim_size(3), input.dim_size(4)};
         int64 filter_channel = filter.dim_size(0);
         vector<int64> filter_size = {filter.dim_size(1), filter.dim_size(2), filter.dim_size(3)};
-        int64 offset_group = offset.dim_size(0);
-        vector<int64> offset_size = {offset.dim_size(1), offset.dim_size(2), offset.dim_size(3),
-                                     offset.dim_size(4), offset.dim_size(5), offset.dim_size(6)};
+        int64 offset_batch_size = offset.dim_size(0);
+        int64 offset_group = offset.dim_size(1);
+        vector<int64> offset_size = {offset.dim_size(2), offset.dim_size(3), offset.dim_size(4),
+                                     offset.dim_size(5), offset.dim_size(6), offset.dim_size(7)};
         //check everything
-        OP_REQUIRES(context, offset.dim_size(7) == 3,
+        OP_REQUIRES(context, offset.dim_size(8) == 3,
                     errors::InvalidArgument("last dim_size of offset should be 3"));
+        OP_REQUIRES(context, offset_batch_size == batch_size,
+                    errors::InvalidArgument("batch size of offset"));
         OP_REQUIRES(context, input_channel % offset_group == 0, errors::InvalidArgument("offset group"));
         for (int i = 0; i < 3; ++i) {
             OP_REQUIRES_OK(context,
@@ -138,20 +141,13 @@ public:
 
             OP_REQUIRES(context, offset_size[i] == output_size[i],
                         errors::InvalidArgument("offset: ", offset_size[i]," vs output: ", output_size[i]));
-
-//            OP_REQUIRES(context, input_size[i] %2==1,
-//                        errors::InvalidArgument("input: ", input_size[i]," is not singular "));
-//            OP_REQUIRES(context, filter_size[i] %2==1,
-//                        errors::InvalidArgument("filter: ", filter_size[i]," is not singular "));
-
         }
-
 
         const vector<int64> output_shape = {batch_size, input_channel * filter_channel,
                                             output_size[0], output_size[1], output_size[2]};
         const vector<int64> input_shape = {batch_size, input_channel, input_size[0], input_size[1], input_size[2]};
         const vector<int64> filter_shape = {filter_channel, filter_size[0], filter_size[1], filter_size[2]};
-        const vector<int64> offset_shape = {offset_group, offset_size[0], offset_size[1], offset_size[2],
+        const vector<int64> offset_shape = {batch_size, offset_group, offset_size[0], offset_size[1], offset_size[2],
                                             offset_size[3], offset_size[4], offset_size[5], 3};
 
         // Create an output tensor
