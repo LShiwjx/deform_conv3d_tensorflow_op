@@ -57,22 +57,23 @@ def run_benchmark():
     timing_entries = []
     with tf.Graph().as_default():
         # Generate some dummy images.
-        image_size = 15
+        image_size = 120
         image_channel = 3
         video_size = 3
         kernel_length = 3
         kernel_height = 3
         kernel_width = 3
-        out_length = 1
-        out_height = 13
-        out_width = 13
+        out_length = 3
+        out_height = 120
+        out_width = 120
         kernel_channel = 2
         offset_group = 1
         # Note that our padding definition is slightly different the cuda-convnet.
         # In order to force the model to start with the same activations sizes,
         # we add 3 to the image_size and employ VALID padding above.
         image_shape = [FLAGS.batch_size, image_channel, video_size, image_size, image_size]
-        offset_shape = [offset_group, out_length, out_height, out_width, kernel_length, kernel_height, kernel_width, 3]
+        offset_shape = [FLAGS.batch_size, offset_group, out_length, out_height, out_width, kernel_length, kernel_height,
+                        kernel_width, 3]
         kernel_shape = [kernel_channel, kernel_length, kernel_height, kernel_width]
         images = tf.Variable(tf.random_normal(image_shape,
                                               dtype=tf.float32,
@@ -83,9 +84,17 @@ def run_benchmark():
         kernel = tf.Variable(tf.random_normal(kernel_shape,
                                               dtype=tf.float32,
                                               stddev=1e-1))
-        parameters = [kernel]
+        # parameters = [kernel]
 
-        last_layer = deform_conv_op.deform_conv3d(images, kernel, offset)
+        # last_layer = deform_conv_op.deform_conv3d(images, kernel, offset, padding='SAME')
+
+        # 0.006
+        img_shape = [FLAGS.batch_size, video_size, image_size, image_size, image_channel]
+        ker_shape = [kernel_length, kernel_height, kernel_width, image_channel, image_channel * kernel_channel]
+        img = tf.Variable(tf.random_normal(img_shape))
+        ker = tf.Variable(tf.random_normal(ker_shape))
+        parameters = [ker]
+        last_layer = tf.nn.conv3d(img, ker, [1, 1, 1, 1, 1], 'SAME')
 
         # Build an initialization operation.
         init = tf.global_variables_initializer()

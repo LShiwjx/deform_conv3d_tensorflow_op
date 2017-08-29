@@ -10,14 +10,14 @@ class OpTest(test.TestCase):
     def test_gradient(self):
         with self.test_session(use_gpu=True):
             image_size = 120
+            out_height = 120
+            out_width = 120
             image_channel = 3
             video_size = 3
             kernel_length = 3
             kernel_height = 3
             kernel_width = 3
-            out_length = 120
-            out_height = 120
-            out_width = 1
+            out_length = 3
             kernel_channel = 2
             offset_group = 3
             batch_size = 3
@@ -31,10 +31,13 @@ class OpTest(test.TestCase):
 
             # 由于offset在整数附近会使得不可导，计算容易出偏差
             offset = constant_op.constant([[[[[[[[[0., 0., 0]] * kernel_width] * kernel_height] * kernel_length]
-                                              * out_width] * out_height] * out_length] * offset_group] * batch_size)
-            filters = constant_op.constant([[[[1.] * kernel_width] * kernel_height] * kernel_length] * kernel_channel)
+                                              * out_width] * out_height] * out_length] * offset_group] * batch_size,
+                                          dtype=tf.float32)
+            filters = constant_op.constant([[[[1.] * kernel_width] * kernel_height] * kernel_length] * kernel_channel,
+                                           dtype=tf.float32)
             inputs = constant_op.constant(
-                [[[[[123.] * image_size] * image_size] * video_size] * image_channel] * batch_size)
+                [[[[[123.] * image_size] * image_size] * video_size] * image_channel] * batch_size,
+                dtype=tf.float32)
 
             last_layer = deform_conv3d_op.deform_conv3d(inputs, filters, offset, padding='SAME')
 
