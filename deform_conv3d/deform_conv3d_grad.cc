@@ -43,13 +43,13 @@ namespace {
                 //NCLHW
                 ShapeHandle input_shape;
                 TF_RETURN_IF_ERROR(c->WithRank(c->input(0), 5, &input_shape));
-                //C'L'H'W'
+                //NCL'H'W'
                 ShapeHandle filter_shape;
-                TF_RETURN_IF_ERROR(c->WithRank(c->input(1), 4, &filter_shape));
+                TF_RETURN_IF_ERROR(c->WithRank(c->input(1), 5, &filter_shape));
                 //NGL"H"W"L'H'W'3
                 ShapeHandle offset_shape;
                 TF_RETURN_IF_ERROR(c->WithRank(c->input(2), 9, &offset_shape));
-                //NC'*CL"H"W"
+                //NN'*CL"H"W"
                 ShapeHandle out_shape;
                 TF_RETURN_IF_ERROR(c->WithRank(c->input(3), 5, &out_shape));
 
@@ -69,6 +69,7 @@ struct setZero<CPUDevice, T> {
     }
 
 };
+
 template<typename T>
 struct DeformConv3dGradFunctor<CPUDevice, T> {
     void operator()(
@@ -110,8 +111,9 @@ public:
         int64 input_batch_size = input.dim_size(0);
         int64 input_channel = input.dim_size(1);
         vector<int64> input_size = {input.dim_size(2), input.dim_size(3), input.dim_size(4)};
-        int64 filter_channel = filter.dim_size(0);
-        vector<int64> filter_size = {filter.dim_size(1), filter.dim_size(2), filter.dim_size(3)};
+        int64 filter_num = filter.dim_size(0);
+        int64 filter_channel = filter.dim_size(1);
+        vector<int64> filter_size = {filter.dim_size(2), filter.dim_size(3), filter.dim_size(4)};
         int64 offset_batch_size = offset.dim_size(0);
         int64 offset_group = offset.dim_size(1);
         vector<int64> offset_size = {offset.dim_size(2), offset.dim_size(3), offset.dim_size(4),
@@ -125,11 +127,14 @@ public:
                     errors::InvalidArgument("last dim_size of offset should be 3"));
         OP_REQUIRES(context, offset_batch_size == input_batch_size,
                     errors::InvalidArgument("offset_batch_size"));
+        OP_REQUIRES(context, filter_channel == input_channel,
+                    errors::InvalidArgument("filter_channel"));
         OP_REQUIRES(context, residual_batch_size == input_batch_size,
                     errors::InvalidArgument("residual_batch_size"));
-        OP_REQUIRES(context, residual_channel == filter_channel * input_channel,
+        OP_REQUIRES(context, residual_channel == filter_num * input_channel,
                     errors::InvalidArgument("residual_channel"));
-        OP_REQUIRES(context, input_channel % offset_group == 0, errors::InvalidArgument("offset group not divided"));
+        OP_REQUIRES(context, input_channel * filter_num % offset_group == 0,
+                    errors::InvalidArgument("offset group not divided"));
         for (int i = 0; i < 3; ++i) {
             //get the pad and output size
             OP_REQUIRES_OK(context,
@@ -159,7 +164,7 @@ public:
 
         Tensor *filter_grad = nullptr;
         OP_REQUIRES_OK(context, context->allocate_output(1, TensorShape(
-                {filter_channel, filter_size[0], filter_size[1], filter_size[2]}), &filter_grad));
+                {filter_num, filter_channel, filter_size[0], filter_size[1], filter_size[2]}), &filter_grad));
         T *filter_grad_ptr = filter_grad->template flat<T>().data();
 
 
@@ -170,22 +175,22 @@ public:
         T *offset_grad_ptr = offset_grad->template flat<T>().data();
 
 
-        const vector<int64> residual_shape = {residual_batch_size, input_channel * filter_channel,
+        const vector<int64> residual_shape = {residual_batch_size, input_channel * filter_num,
                                               residual_size[0], residual_size[1], residual_size[2]};
         const vector<int64> input_shape = {input_batch_size, input_channel,
                                            input_size[0], input_size[1], input_size[2]};
-        const vector<int64> filter_shape = {filter_channel, filter_size[0], filter_size[1], filter_size[2]};
+        const vector<int64> filter_shape = {filter_num, filter_channel, filter_size[0], filter_size[1], filter_size[2]};
         const vector<int64> offset_shape = {offset_batch_size, offset_group, offset_size[0], offset_size[1],
                                             offset_size[2], offset_size[3], offset_size[4], offset_size[5], 3};
 
-        setZero<Device,T>()(context->eigen_device<Device>(),ProdShape(input_shape),input_grad_ptr);
-        setZero<Device,T>()(context->eigen_device<Device>(),ProdShape(filter_shape),filter_grad_ptr);
-        setZero<Device,T>()(context->eigen_device<Device>(),ProdShape(offset_shape),offset_grad_ptr);
+        setZero<Device, T>()(context->eigen_device<Device>(), ProdShape(input_shape), input_grad_ptr);
+        setZero<Device, T>()(context->eigen_device<Device>(), ProdShape(filter_shape), filter_grad_ptr);
+        setZero<Device, T>()(context->eigen_device<Device>(), ProdShape(offset_shape), offset_grad_ptr);
 
         DeformConv3dGradFunctor<Device, T>()(
                 context->eigen_device<Device>(),
                 input_ptr, filter_ptr, offset_ptr, residual_ptr,
-                input_shape, filter_shape, offset_shape,residual_shape,
+                input_shape, filter_shape, offset_shape, residual_shape,
                 pads, strides, dilatation_rates,
                 input_grad_ptr, filter_grad_ptr, offset_grad_ptr
         );

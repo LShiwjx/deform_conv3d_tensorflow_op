@@ -9,35 +9,40 @@ from tensorflow.python.framework import constant_op
 class OpTest(test.TestCase):
     def test_gradient(self):
         with self.test_session(use_gpu=True):
-            image_size = 120
-            out_height = 120
-            out_width = 120
-            image_channel = 3
+            image_size = 7
+            out_size = 7
+
+            image_channel = 1
+
             video_size = 3
+            out_length = 3
+
             kernel_length = 3
             kernel_height = 3
             kernel_width = 3
-            out_length = 3
-            kernel_channel = 2
-            offset_group = 3
-            batch_size = 3
+            kernel_num = 1
+
+            offset_group = 1
+            batch_size = 1
 
             inputs_shape = [batch_size, image_channel, video_size, image_size, image_size]
-            offset_shape = [batch_size, offset_group, out_length, out_height, out_width, kernel_length, kernel_height,
+            offset_shape = [batch_size, offset_group, out_length, out_size, out_size, kernel_length, kernel_height,
                             kernel_width,
                             3]
-            filters_shape = [kernel_channel, kernel_length, kernel_height, kernel_width]
-            out_shape = [batch_size, image_channel * kernel_channel, out_length, out_height, out_width]
+            filters_shape = [kernel_num, image_channel, kernel_length, kernel_height, kernel_width]
+            out_shape = [batch_size, image_channel * kernel_num, out_length, out_size, out_size]
 
             # 由于offset在整数附近会使得不可导，计算容易出偏差
-            offset = constant_op.constant([[[[[[[[[0., 0., 0]] * kernel_width] * kernel_height] * kernel_length]
-                                              * out_width] * out_height] * out_length] * offset_group] * batch_size,
+            offset = constant_op.constant([[[[[[[[[0.5, 0.5, 0.5]] * kernel_width] * kernel_height] * kernel_length]
+                                              * out_size] * out_size] * out_length] * offset_group] * batch_size,
                                           dtype=tf.float32)
-            filters = constant_op.constant([[[[1.] * kernel_width] * kernel_height] * kernel_length] * kernel_channel,
-                                           dtype=tf.float32)
-            inputs = constant_op.constant(
-                [[[[[123.] * image_size] * image_size] * video_size] * image_channel] * batch_size,
+            filters = constant_op.constant(
+                [[[[[1.] * kernel_width] * kernel_height] * kernel_length] * image_channel] * kernel_num,
                 dtype=tf.float32)
+            inputs = constant_op.constant(
+                [[[[[1.3] * image_size] * image_size] * video_size] * image_channel] * batch_size,
+                dtype=tf.float32)
+            # inputs = tf.random_normal()
 
             last_layer = deform_conv3d_op.deform_conv3d(inputs, filters, offset, padding='SAME')
 

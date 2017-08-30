@@ -9,7 +9,7 @@ _deform_conv3d_module = tf.load_op_library(filename)
 """
 Args:
     Forward:NCLHW
-    Filter:C'L'H'W'
+    Filter:N'CL'H'W'
     Offset:GL"H"W"L'H'W'3
 Attrs:
     strides: S
@@ -27,7 +27,7 @@ _deform_conv3d_grad_module = tf.load_op_library(filename)
 """
 Args:
     Forward:NCLHW
-    Filter:C'L'H'W'
+    Filter:N'CL'H'W'
     Offset:GL"H"W"L'H'W'3
     Backward:NC*C'L"H"W"
 Attrs:
@@ -38,7 +38,7 @@ Attrs:
         SAME: L"=ceil(L/S) P=((L"-1)*S+L'-L)/2
 Return:
     Forward_grad:NCLHW
-    Filter_grad:C'L'H'W'
+    Filter_grad:N'CL'H'W'
     offset_grad:GL"H"W"L'H'W'3
 """
 deform_conv3d_grad = _deform_conv3d_grad_module.deform_conv3d_grad

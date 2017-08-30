@@ -1,8 +1,8 @@
 import tensorflow as tf
 
 deform_conv3d_module = tf.load_op_library('./deform_conv3d.so')
-offset = [[[[[[[[[0, 0.5, -0.5]] * 1] * 1] * 1] * 3] * 3] * 3] * 3] * 2
-filters = [[[[1]] * 1] * 1]
+offset = [[[[[[[[[0, 0., 0]] * 1] * 1] * 1] * 3] * 3] * 3] * 3] * 2
+filters = [[[[[1]] * 1] * 1] * 3] * 2
 inputs = [[[[[1.] * 3] * 3] * 3] * 3] * 2
 with tf.Session(''):
     result = deform_conv3d_module.deform_conv3d \

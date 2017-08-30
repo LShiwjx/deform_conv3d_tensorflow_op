@@ -64,7 +64,7 @@ __global__ void DeformConv3dCudaKernel(CudaLaunchConfig config,
                                        const T *data_im, const T *data_filter, const T *data_offset,
                                        const int batch_size, const int im_channel,
                                        const int im_l, const int im_h, const int im_w,
-                                       const int filter_channel,
+                                       const int filter_num,
                                        const int filter_l, const int filter_h, const int filter_w,
                                        const int offset_group,
                                        const int output_l, const int output_h, const int output_w,
@@ -82,14 +82,14 @@ __global__ void DeformConv3dCudaKernel(CudaLaunchConfig config,
         const int h_out = (index / output_w) % output_h;
         const int l_out = ((index / output_w) / output_h) % output_l;
         const int c_in = (((index / output_w) / output_h) / output_l) % im_channel;
-        const int c_filter = (((index / output_w) / output_h) / output_l) / im_channel % filter_channel;
-        const int n_out = (((index / output_w) / output_h) / output_l) / im_channel / filter_channel;
+        const int n_filter = (((index / output_w) / output_h) / output_l) / im_channel % filter_num;
+        const int n_out = (((index / output_w) / output_h) / output_l) / im_channel / filter_num % batch_size;
 
-        //current data ptr for output, format is N(C*C')L"H"W"
+        //current data ptr for output, format is N(C*N')L"H"W"
         T *data_output_ptr =
-                data_output + n_out * im_channel * filter_channel * volume_out +
-                c_in * filter_channel * volume_out +
-                c_filter * volume_out +
+                data_output + n_out * filter_num * im_channel * volume_out +
+                n_filter * im_channel * volume_out +
+                c_in * volume_out +
                 l_out * output_h * output_w +
                 h_out * output_w +
                 w_out;
@@ -100,19 +100,19 @@ __global__ void DeformConv3dCudaKernel(CudaLaunchConfig config,
         const int l_in = l_out * stride_l - pad_l;
 
         //decide which group of offset params to use
-        const int channel_per_deformable_group = im_channel / offset_group;
-        const int deformable_group_index = c_in / channel_per_deformable_group;
+        const int channel_per_deformable_group = im_channel * filter_num / offset_group;
+        const int deformable_group_index = (n_filter * im_channel + c_in) / channel_per_deformable_group;
 
         //current data ptr for input img, img format is NCLHW
         const T *data_img_base_ptr = data_im + n_out * im_channel * volume_in + c_in * volume_in;
 
-        //current data ptr for offset value, off format is GL"H"W"L'H'W'3
+        //current data ptr for offset value, off format is NGL"H"W"L'H'W'3
         const T *data_offset_base_ptr = data_offset + n_out * offset_group * volume_out * volume_filter * 3 +
                                         deformable_group_index * volume_out * volume_filter * 3 +
                                         l_out * output_h * output_w * volume_filter * 3 +
                                         h_out * output_w * volume_filter * 3 + w_out * volume_filter * 3;
-        //current data ptr for filter value, off format is C'L'H'W'
-        const T *data_filter_base_ptr = data_filter + c_filter * volume_filter;
+        //current data ptr for filter value, off format is N'CL'H'W'
+        const T *data_filter_base_ptr = data_filter + n_filter * im_channel * volume_filter + c_in * volume_filter;
 
 
         //result of convolution
@@ -165,7 +165,7 @@ struct DeformConv3dFunctor<GPUDevice, T> {
                 << < config.block_count, config.thread_per_block, 0, d.stream() >> > (
                 config, data_im, data_filter, data_offset,
                         im_shape[0], im_shape[1], im_shape[2], im_shape[3], im_shape[4],
-                        filter_shape[0], filter_shape[1], filter_shape[2], filter_shape[3],
+                        filter_shape[0], filter_shape[2], filter_shape[3], filter_shape[4],
                         offset_shape[1],
                         output_shape[2], output_shape[3], output_shape[4],
                         pad[0], pad[1], pad[2],

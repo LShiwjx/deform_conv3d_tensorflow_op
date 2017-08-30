@@ -37,7 +37,7 @@ __global__ void DeformConv3dGradCudaKernel(
         const T *data_input, const T *data_filter, const T *data_offset, const T *data_residual,
         const int batch_size, const int input_channel,
         const int input_length, const int input_height, const int input_width,
-        const int filter_channel, const int filter_length, const int filter_height, const int filter_width,
+        const int filter_num, const int filter_length, const int filter_height, const int filter_width,
         const int off_group,
         const int residual_length, const int residual_height, const int residual_width,
         const int stride_l, const int stride_h, const int stride_w,
@@ -55,23 +55,23 @@ __global__ void DeformConv3dGradCudaKernel(
             const int w_residual = x % residual_width;
             const int h_residual = (x / residual_width) % residual_height;
             const int l_residual = ((x / residual_width) / residual_height) % residual_length;
-            const int c_filter = (((x / residual_width) / residual_height) / residual_length) % filter_channel;
             const int c_in =
-                    (((x / residual_width) / residual_height) / residual_length) / filter_channel %
-                    input_channel;
+                    (((x / residual_width) / residual_height) / residual_length) % input_channel;
+            const int n_filter =
+                    (((x / residual_width) / residual_height) / residual_length) / input_channel % filter_num;
             const int n_residual =
-                    (((x / residual_width) / residual_height) / residual_length) / filter_channel /
-                    input_channel;
-            //current filter point
+                    (((x / residual_width) / residual_height) / residual_length) / input_channel / filter_num %
+                    batch_size;
+            //current filter point c_filter is the same as c_in
             const int w_filter = y % filter_width;
             const int h_filter = y / filter_width % filter_height;
-            const int l_filter = y / filter_width / filter_height;
+            const int l_filter = y / filter_width / filter_height % filter_length;
 
 
             const T *data_residual_ptr =
-                    data_residual + n_residual * input_channel * filter_channel * residual_volume +
-                    c_in * filter_channel * residual_volume +
-                    c_filter * residual_volume +
+                    data_residual + n_residual * filter_num * input_channel * residual_volume +
+                    n_filter * input_channel * residual_volume +
+                    c_in * residual_volume +
                     l_residual * residual_height * residual_width +
                     h_residual * residual_width +
                     w_residual;
@@ -82,8 +82,8 @@ __global__ void DeformConv3dGradCudaKernel(
             const int l_in = l_residual * stride_l - pad_l;
 
             //decide which group of offset params to use
-            const int channel_per_deformable_group = input_channel / off_group;
-            const int deformable_group_index = c_in / channel_per_deformable_group;
+            const int channel_per_deformable_group = input_channel * filter_num / off_group;
+            const int deformable_group_index = (n_filter * input_channel + c_in) / channel_per_deformable_group;
 
             //current data ptr for input img, img format is NCLHW
             const int64 input_off = n_residual * input_channel * input_volume + c_in * input_volume;
@@ -91,7 +91,7 @@ __global__ void DeformConv3dGradCudaKernel(
             T *data_grad_input_base_ptr = data_grad_input + input_off;
 
             //current data ptr for offset value, off format is NGL"H"W"L'H'W'3
-            const int64 off_off = n_residual * off_group * residual_volume * filter_volume +
+            const int64 off_off = n_residual * off_group * residual_volume * filter_volume * 3 +
                                   deformable_group_index * residual_volume * filter_volume * 3 +
                                   l_residual * residual_height * residual_width * filter_volume * 3 +
                                   h_residual * residual_width * filter_volume * 3 +
@@ -100,9 +100,9 @@ __global__ void DeformConv3dGradCudaKernel(
                                   h_filter * filter_width * 3 + w_filter * 3;
             const T *data_offset_base_ptr = data_offset + off_off;
             T *data_grad_offset_base_ptr = data_grad_offset + off_off;
-
-            //current data ptr for filter value, filter format is C'L'H'W'
-            const int64 filter_off = c_filter * filter_volume +
+            //current data ptr for filter value, filter format is N'CL'H'W'
+            const int64 filter_off = n_filter * input_channel * filter_volume +
+                                     c_in * filter_volume +
                                      l_filter * filter_height * filter_width +
                                      h_filter * filter_width + w_filter;
             const T *data_filter_ptr = data_filter + filter_off;
@@ -186,6 +186,8 @@ __global__ void DeformConv3dGradCudaKernel(
                         *data_filter_ptr * h_length * l_height * l_width *
                         (*data_residual_ptr));
 
+//                printf("%d %d %f %f %f %d\n", threadIdx.y, threadIdx.x,;
+
                 CudaAtomicAdd(
                         data_grad_input_base_ptr + a100,
                         *data_filter_ptr * l_length * h_height * h_width *
@@ -205,11 +207,13 @@ __global__ void DeformConv3dGradCudaKernel(
 
 
 
+
                 //grad for filter
                 CudaAtomicAdd(data_grad_filter_ptr, val * (*data_residual_ptr));
                 //grad for offset
                 //TODO:test the other value for point is not derivable, improve less. Maybe there are some other methods
-//                if(l_length==0) CudaAtomicAdd(data_grad_offset_base_ptr + 0,(*data_filter_ptr) * (*data_residual_ptr));
+//                if(l_length==0) CudaAtomicAdd(data_grad_offset_base_ptr + 0,
+//                                              (data_offset_base_ptr[0]>=0?-1:1)*(*data_filter_ptr) * (*data_residual_ptr));
 //                else
                 CudaAtomicAdd(data_grad_offset_base_ptr + 0,
                               (*data_filter_ptr) * (*data_residual_ptr)
@@ -217,7 +221,8 @@ __global__ void DeformConv3dGradCudaKernel(
                                  c110 * l_height * h_width + c111 * l_height * l_width -
                                  c000 * h_height * h_width - c001 * h_height * l_width -
                                  c010 * l_height * h_width - c011 * l_height * l_width));
-//                if(l_height==0) CudaAtomicAdd(data_grad_offset_base_ptr + 1,(*data_filter_ptr) * (*data_residual_ptr));
+//                if(l_height==0) CudaAtomicAdd(data_grad_offset_base_ptr + 1,
+//                                              (data_offset_base_ptr[1]>=0?-1:1)*(*data_filter_ptr) * (*data_residual_ptr));
 //                else
                 CudaAtomicAdd(data_grad_offset_base_ptr + 1,
                               (*data_filter_ptr) * (*data_residual_ptr)
@@ -225,7 +230,8 @@ __global__ void DeformConv3dGradCudaKernel(
                                  c110 * l_length * h_width + c111 * l_length * l_width -
                                  c000 * h_length * h_width - c001 * h_length * l_width -
                                  c100 * l_length * h_width - c101 * l_length * l_width));
-//                if(l_width==0) CudaAtomicAdd(data_grad_offset_base_ptr + 2,(*data_filter_ptr) * (*data_residual_ptr));
+//                if(l_width==0) CudaAtomicAdd(data_grad_offset_base_ptr + 2,
+//                                             (data_offset_base_ptr[2]>=0?-1:1)*(*data_filter_ptr) * (*data_residual_ptr));
 //                else
                 CudaAtomicAdd(data_grad_offset_base_ptr + 2,
                               (*data_filter_ptr) * (*data_residual_ptr)
@@ -233,13 +239,15 @@ __global__ void DeformConv3dGradCudaKernel(
                                  c011 * l_height * h_length + c111 * l_height * l_length -
                                  c000 * h_height * h_length - c100 * h_height * l_length -
                                  c010 * l_height * h_length - c110 * l_height * l_length));
-
             }//if
             else {
                 //the gradient for points out of img
-//                CudaAtomicAdd(data_grad_offset_base_ptr + 0,(*data_filter_ptr) * (*data_residual_ptr));
-//                CudaAtomicAdd(data_grad_offset_base_ptr + 1,(*data_filter_ptr) * (*data_residual_ptr));
-//                CudaAtomicAdd(data_grad_offset_base_ptr + 2,(*data_filter_ptr) * (*data_residual_ptr));
+//                CudaAtomicAdd(data_grad_offset_base_ptr + 0,
+//                              (data_offset_base_ptr[0]>=0?-1:1)*(*data_filter_ptr) * (*data_residual_ptr));
+//                CudaAtomicAdd(data_grad_offset_base_ptr + 1,
+//                              (data_offset_base_ptr[1]>=0?-1:1)*(*data_filter_ptr) * (*data_residual_ptr));
+//                CudaAtomicAdd(data_grad_offset_base_ptr + 2,
+//                              (data_offset_base_ptr[2]>=0?-1:1)*(*data_filter_ptr) * (*data_residual_ptr));
             }
 
         }
@@ -258,14 +266,14 @@ struct DeformConv3dGradFunctor<GPUDevice, T> {
             T *input_grad_ptr, T *filter_grad_ptr, T *offset_grad_ptr) {
         //the cuda kernel.
         int volume_residual = ProdShape(residual_shape);
-        int volume_filter = ProdShape(filter_shape);
+        int volume_filter = ProdShape(filter_shape, 2);
         Cuda2DLaunchConfig config2d = GetCuda2DLaunchConfig(volume_residual, volume_filter, d);
 
         DeformConv3dGradCudaKernel<T>
                 << < config2d.block_count, config2d.thread_per_block, 0, d.stream() >> > (
                 data_input, data_filter, data_offset, data_residual,
                         input_shape[0], input_shape[1], input_shape[2], input_shape[3], input_shape[4],
-                        filter_shape[0], filter_shape[1], filter_shape[2], filter_shape[3],
+                        filter_shape[0], filter_shape[2], filter_shape[3], filter_shape[4],
                         offset_shape[1],
                         residual_shape[2], residual_shape[3], residual_shape[4],
                         stride[0], stride[1], stride[2],
