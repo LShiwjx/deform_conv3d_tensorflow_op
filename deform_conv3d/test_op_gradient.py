@@ -9,8 +9,8 @@ from tensorflow.python.framework import constant_op
 class OpTest(test.TestCase):
     def test_gradient(self):
         with self.test_session(use_gpu=True):
-            image_size = 7
-            out_size = 7
+            image_size = 5
+            out_size = 5
 
             image_channel = 1
 
