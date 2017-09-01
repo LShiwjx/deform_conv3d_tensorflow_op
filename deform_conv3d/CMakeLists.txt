@@ -1,3 +1,4 @@
+find_package(CUDA REQUIRED)
 add_definitions(-DGOOGLE_CUDA=1 -D_GLIBCXX_USE_CXX11_ABI=0)
 
 include_directories(
@@ -5,3 +6,4 @@ include_directories(
         "/usr/local/cuda/include"
         "./"
 )
+cuda_add_executable(deform_conv3d deform_conv3d.cc)
